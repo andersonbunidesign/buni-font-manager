@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
@@ -284,12 +284,30 @@ export default function App() {
 
   const text = inColl ? collection!.sampleText ?? collection!.name : allText;
   const previewText = text.length > 50 ? text.slice(0, 50).trimEnd() + "…" : text;
-  const cellMin = Math.max(120, Math.round(Math.max(previewText.length, 4) * size * 0.62 + 60 * pad));
   const cellH = Math.round(size * 1.3 + (size * 0.4 + 60) * pad);
   const padV = Math.round(22 * pad);
   const padH = Math.round(24 * pad);
   const padB = Math.round(14 * pad);
   const gap = Math.max(4, Math.round(14 * pad));
+
+  // Measure the widest preview so cards fit the text instead of leaving empty space.
+  const measureRef = useRef<HTMLDivElement>(null);
+  const [textW, setTextW] = useState(0);
+  const measure = useCallback(() => {
+    const el = measureRef.current;
+    if (!el) return;
+    let max = 0;
+    el.querySelectorAll("span").forEach((sp) => (max = Math.max(max, sp.getBoundingClientRect().width)));
+    setTextW(Math.ceil(max));
+  }, []);
+  useLayoutEffect(measure);
+  useEffect(() => {
+    const fonts = document.fonts;
+    fonts.addEventListener("loadingdone", measure);
+    fonts.ready.then(measure).catch(() => {});
+    return () => fonts.removeEventListener("loadingdone", measure);
+  }, [measure]);
+  const cellW = focus ? Math.max(140, textW + padH + 52 + 4) : Math.max(230, textW + padH * 2 + 4);
 
   const faces = useMemo(
     () => lib.fonts.map((f) => `@font-face{font-family:"${fontFaceName(f.id)}";src:url("${convertFileSrc(f.path)}");font-display:block;}`).join("\n"),
@@ -584,6 +602,13 @@ export default function App() {
   return (
     <div className="app">
       <style>{faces}</style>
+      <div ref={measureRef} aria-hidden="true" style={{ position: "absolute", left: -100000, top: 0, visibility: "hidden", whiteSpace: "nowrap" }}>
+        {shown.map((fam) => (
+          <span key={fam.key} style={{ ...previewStyle(fam.rep), display: "inline-block", lineHeight: 1.15 }}>
+            {previewText}
+          </span>
+        ))}
+      </div>
 
       <header className="header">
         <div className="brand">
@@ -593,7 +618,7 @@ export default function App() {
         <input className="sample" type="text" aria-label="Sample text" placeholder="Type your sample text" value={text} onChange={(e) => onText(e.target.value)} />
         <div className="sliders">
           <label htmlFor="size">Size {size}</label>
-          <input id="size" type="range" min={20} max={120} value={size} onChange={(e) => setSize(Number(e.target.value))} />
+          <input id="size" type="range" min={20} max={240} value={size} onChange={(e) => setSize(Number(e.target.value))} />
           <label htmlFor="pad">Padding ×{pad.toFixed(1)}</label>
           <input id="pad" type="range" min={0.2} max={1.6} step={0.1} value={pad} onChange={(e) => setPad(Number(e.target.value))} />
         </div>
@@ -791,7 +816,7 @@ export default function App() {
               })}
             </div>
           ) : (
-            <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${cellMin}px, 100%), 1fr))`, gap }}>
+            <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill, min(${cellW}px, 100%))`, gap }}>
               {shown.map((fam) => {
                 const isSel = sel.includes(fam.key);
                 const inTarget = !!target && fam.ids.some((id) => lib.collections.find((c) => c.name === target)?.fontIds.includes(id));

@@ -39,6 +39,7 @@ export interface Library {
   fonts: FontRecord[];
   collections: Collection[];
   origins: string[];
+  detection?: number;
 }
 
 export interface ImportReport {

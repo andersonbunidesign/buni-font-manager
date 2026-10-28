@@ -89,7 +89,13 @@ pub struct Library {
     /// Origins the user has used, most recent first.
     #[serde(default)]
     pub origins: Vec<String>,
+    /// Version of the style detection that filled in classification/spacing.
+    #[serde(default)]
+    pub detection: u32,
 }
+
+/// Bump when the style detection improves, so existing libraries are re-read once.
+pub const DETECTION_VERSION: u32 = 2;
 
 fn version_one() -> u32 {
     1

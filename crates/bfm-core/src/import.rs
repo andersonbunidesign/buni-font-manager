@@ -1,6 +1,6 @@
 //! Importing zips, folders and font files into the library.
 
-use crate::model::{FontRecord, ImportError, ImportReport, Library, SkippedFont};
+use crate::model::{FontRecord, ImportError, ImportReport, Library, SkippedFont, DETECTION_VERSION};
 use crate::reader::{is_font_file_name, read_font};
 use sha2::{Digest, Sha256};
 use std::collections::BTreeSet;
@@ -290,7 +290,27 @@ pub fn import_paths(lib: &mut Library, inputs: &[PathBuf], library_dir: &Path, o
     if !report.added.is_empty() {
         lib.remember_origin(origin);
     }
+    lib.detection = DETECTION_VERSION.max(lib.detection);
     report
+}
+
+/// Re-reads every font file with the current style detection, if the library was
+/// filled in by an older version. Tags the user added are kept. Returns true if anything ran.
+pub fn refresh_detection(lib: &mut Library) -> bool {
+    if lib.detection >= DETECTION_VERSION {
+        return false;
+    }
+    for f in lib.fonts.iter_mut() {
+        if let Ok(info) = std::fs::read(&f.path).map_err(|_| ()).and_then(|d| read_font(&d).map_err(|_| ())) {
+            f.classification = info.classification;
+            f.spacing = info.spacing;
+            f.langs = info.langs;
+            f.no_embedding = info.no_embedding;
+            f.monospace = info.monospace;
+        }
+    }
+    lib.detection = DETECTION_VERSION;
+    true
 }
 
 /// Moves the files of `ids` into `trash_dir` and removes them from the library and collections.

@@ -1,6 +1,6 @@
 mod platform;
 
-use bfm_core::import::{import_paths as core_import, restore_trashed, trash_fonts};
+use bfm_core::import::{import_paths as core_import, refresh_detection, restore_trashed, trash_fonts};
 use bfm_core::{store, FontRecord, ImportReport, Library};
 use serde::Serialize;
 use std::path::PathBuf;
@@ -100,6 +100,7 @@ fn save_library(data: State<AppData>, library: Library) -> Result<(), String> {
         }
     }
     merged.fonts.retain(|f| lib.font(&f.id).is_some());
+    merged.detection = lib.detection;
     *lib = merged;
     save(&data, &lib)
 }
@@ -160,7 +161,11 @@ pub fn run() {
     let paths = Paths { root };
     // Deleted fonts can only be undone within one run of the app.
     let _ = std::fs::remove_dir_all(paths.trash_dir());
-    let lib = store::load(&paths.library_file()).unwrap_or_default();
+    let mut lib = store::load(&paths.library_file()).unwrap_or_default();
+    // Re-read fonts once when the style detection has improved since they were imported.
+    if refresh_detection(&mut lib) {
+        let _ = store::save(&paths.library_file(), &lib);
+    }
 
     // Activation lasts until Windows restarts, so bring back every active font now.
     let startup_paths: Vec<String> = lib.fonts.iter().filter(|f| f.active).map(|f| f.path.clone()).collect();

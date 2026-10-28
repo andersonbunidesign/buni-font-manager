@@ -1,6 +1,7 @@
 //! Reads what we need from a font file: names, weight, width, style flags,
 //! a classification (Serif, Script…) and which languages it covers.
 
+use crate::shape::{analyse, classify_shape, spacing_shape};
 use ttf_parser::{name_id, Face, Tag};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -95,8 +96,11 @@ pub fn read_font(data: &[u8]) -> Result<FontInfo, ReadError> {
         _ => (None, None, 0),
     };
 
-    let classification = classify(&family, &full_name, family_class, panose);
-    let spacing = spacing_of(monospace, width, &format!("{family} {style}"));
+    let shape = analyse(&face);
+    let classification = classify(&family, &full_name, family_class, panose, classify_shape(&shape, italic));
+    // Swash capitals make scripts look wide, so only measure width for regular text styles.
+    let measured = if matches!(classification.as_str(), "Script" | "Handwritten") { None } else { spacing_shape(&shape) };
+    let spacing = spacing_of(monospace || shape.fixed_pitch, width, &format!("{family} {style}"), measured);
 
     let has_all = |chars: &str| chars.chars().all(|c| face.glyph_index(c).is_some());
     let mut langs = Vec::new();
@@ -137,11 +141,11 @@ pub fn read_font(data: &[u8]) -> Result<FontInfo, ReadError> {
 /// Picks one of: Serif, Sans serif, Script, Decorative, Handwritten, Blackletter, Symbols.
 /// Uses the font's own name first (designers name these reliably), then the
 /// OS/2 family class, then PANOSE.
-pub fn classify(family: &str, full_name: &str, family_class: Option<i16>, panose: Option<[u8; 10]>) -> String {
+pub fn classify(family: &str, full_name: &str, family_class: Option<i16>, panose: Option<[u8; 10]>, from_shape: Option<&str>) -> String {
     let n = format!("{family} {full_name}").to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
 
-    if has(&["fraktur", "blackletter", "black letter", "textura", "gothic text", "unifraktur"]) {
+    if has(&["fraktur", "blackletter", "black letter", "textura", "gothic text", "old english", "rotunda", "schwabacher"]) {
         return "Blackletter".into();
     }
     if has(&["handwrit", "hand written", "marker", "brush"]) {
@@ -176,18 +180,26 @@ pub fn classify(family: &str, full_name: &str, family_class: Option<i16>, panose
             3 => return "Script".into(),
             4 => return "Decorative".into(),
             5 => return "Symbols".into(),
-            2 => {
-                // bSerifStyle 11–15: sans styles.
-                return if (11..=15).contains(&p[1]) { "Sans serif".into() } else if p[1] >= 2 { "Serif".into() } else { "Sans serif".into() };
-            }
             _ => {}
+        }
+    }
+
+    // Most fonts leave the fields above empty, so the letter shapes decide.
+    if let Some(style) = from_shape {
+        return style.into();
+    }
+
+    if let Some(p) = panose {
+        if p[0] == 2 && p[1] >= 2 {
+            // bSerifStyle 11–15 are sans styles.
+            return if (11..=15).contains(&p[1]) { "Sans serif".into() } else { "Serif".into() };
         }
     }
 
     "Sans serif".into()
 }
 
-pub fn spacing_of(monospace: bool, width: u16, name: &str) -> String {
+pub fn spacing_of(monospace: bool, width: u16, name: &str, from_shape: Option<&str>) -> String {
     let n = name.to_lowercase();
     if monospace || n.contains(" mono") {
         return "Monospace".into();
@@ -198,7 +210,8 @@ pub fn spacing_of(monospace: bool, width: u16, name: &str) -> String {
     if width >= 6 || n.contains("extended") || n.contains("expanded") || n.contains("wide") {
         return "Expanded".into();
     }
-    "Normal".into()
+    // Most fonts say width 5 (normal) whatever they look like; measure instead.
+    from_shape.unwrap_or("Normal").into()
 }
 
 #[cfg(test)]
@@ -207,26 +220,28 @@ mod tests {
 
     #[test]
     fn classify_by_name_first() {
-        assert_eq!(classify("Pinyon Script", "Pinyon Script", Some(0x0800), None), "Script");
-        assert_eq!(classify("UnifrakturMaguntia", "UnifrakturMaguntia", None, None), "Blackletter");
-        assert_eq!(classify("Open Sans", "Open Sans", Some(0x0100), None), "Sans serif");
+        assert_eq!(classify("Pinyon Script", "Pinyon Script", Some(0x0800), None, None), "Script");
+        assert_eq!(classify("UnifrakturMaguntia", "UnifrakturMaguntia", None, None, Some("Blackletter")), "Blackletter");
+        assert_eq!(classify("Open Sans", "Open Sans", Some(0x0100), None, None), "Sans serif");
     }
 
     #[test]
     fn classify_falls_back_to_os2_and_panose() {
-        assert_eq!(classify("Fraunces", "Fraunces", Some(0x0102), None), "Serif");
-        assert_eq!(classify("Inter", "Inter", Some(0x0800), None), "Sans serif");
-        assert_eq!(classify("Foo", "Foo", Some(0), Some([3, 0, 0, 0, 0, 0, 0, 0, 0, 0])), "Script");
-        assert_eq!(classify("Foo", "Foo", None, Some([2, 11, 0, 0, 0, 0, 0, 0, 0, 0])), "Sans serif");
-        assert_eq!(classify("Foo", "Foo", None, None), "Sans serif");
+        assert_eq!(classify("Fraunces", "Fraunces", Some(0x0102), None, None), "Serif");
+        assert_eq!(classify("Inter", "Inter", Some(0x0800), None, None), "Sans serif");
+        assert_eq!(classify("Foo", "Foo", Some(0), Some([3, 0, 0, 0, 0, 0, 0, 0, 0, 0]), None), "Script");
+        assert_eq!(classify("Foo", "Foo", None, Some([2, 11, 0, 0, 0, 0, 0, 0, 0, 0]), None), "Sans serif");
+        assert_eq!(classify("Foo", "Foo", None, None, None), "Sans serif");
+        assert_eq!(classify("Foo", "Foo", Some(0), Some([0; 10]), Some("Serif")), "Serif");
     }
 
     #[test]
     fn spacing_rules() {
-        assert_eq!(spacing_of(true, 5, "X"), "Monospace");
-        assert_eq!(spacing_of(false, 3, "X"), "Condensed");
-        assert_eq!(spacing_of(false, 5, "Archivo Narrow"), "Condensed");
-        assert_eq!(spacing_of(false, 7, "X"), "Expanded");
-        assert_eq!(spacing_of(false, 5, "X"), "Normal");
+        assert_eq!(spacing_of(true, 5, "X", None), "Monospace");
+        assert_eq!(spacing_of(false, 3, "X", None), "Condensed");
+        assert_eq!(spacing_of(false, 5, "Archivo Narrow", None), "Condensed");
+        assert_eq!(spacing_of(false, 7, "X", None), "Expanded");
+        assert_eq!(spacing_of(false, 5, "X", None), "Normal");
+        assert_eq!(spacing_of(false, 5, "X", Some("Condensed")), "Condensed");
     }
 }

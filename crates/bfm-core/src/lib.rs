@@ -4,6 +4,7 @@
 pub mod import;
 pub mod model;
 pub mod reader;
+pub mod shape;
 pub mod store;
 
 pub use model::*;
