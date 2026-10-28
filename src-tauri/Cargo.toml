@@ -1,0 +1,26 @@
+[package]
+name = "buni-font-manager"
+version.workspace = true
+edition.workspace = true
+description = "Buni Font Manager"
+
+[lib]
+name = "bfm_app"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+bfm-core = { path = "../crates/bfm-core" }
+tauri = { version = "2", features = ["tray-icon", "protocol-asset"] }
+tauri-plugin-dialog = "2"
+tauri-plugin-opener = "2"
+tauri-plugin-autostart = "2"
+tauri-plugin-single-instance = "2"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+dirs = "5"
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.59", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging"] }

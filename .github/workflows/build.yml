@@ -1,0 +1,51 @@
+name: Build Windows installer
+
+# Every push to main builds the app on a Windows machine and publishes the
+# installer on the Releases page, under the version in package.json.
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install interface packages
+        run: npm ci
+
+      - name: Test the font engine
+        run: cargo test -p bfm-core
+
+      - name: Build and publish the installer
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: v__VERSION__
+          releaseName: Buni Font Manager __VERSION__
+          releaseBody: |
+            Download the file ending in **-setup.exe** below and run it.
+            Windows may show "Windows protected your PC" the first time: click **More info**, then **Run anyway**.
+          releaseDraft: false
+          prerelease: false

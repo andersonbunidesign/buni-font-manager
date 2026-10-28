@@ -1,0 +1,15 @@
+[package]
+name = "bfm-core"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+ttf-parser = "0.25"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+thiserror = "1"
+
+[dev-dependencies]
+tempfile = "3"
