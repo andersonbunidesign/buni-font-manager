@@ -40,11 +40,22 @@ pub fn is_font_file_name(name: &str) -> bool {
     n.ends_with(".otf") || n.ends_with(".ttf")
 }
 
+/// Reads a single-font file (OTF/TTF). Collections (.ttc) are refused here.
 pub fn read_font(data: &[u8]) -> Result<FontInfo, ReadError> {
     if data.len() >= 4 && &data[0..4] == b"ttcf" {
         return Err(ReadError::Collection);
     }
-    let face = Face::parse(data, 0).map_err(|_| ReadError::Unreadable)?;
+    read_font_at(data, 0)
+}
+
+/// Number of fonts in the file (more than one for .ttc collections).
+pub fn face_count(data: &[u8]) -> u32 {
+    ttf_parser::fonts_in_collection(data).unwrap_or(1)
+}
+
+/// Reads the font at `index` of a file; index 0 for normal OTF/TTF files.
+pub fn read_font_at(data: &[u8], index: u32) -> Result<FontInfo, ReadError> {
+    let face = Face::parse(data, index).map_err(|_| ReadError::Unreadable)?;
 
     let name = |ids: &[u16]| -> Option<String> {
         for id in ids {

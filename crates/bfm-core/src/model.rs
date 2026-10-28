@@ -56,6 +56,24 @@ pub struct FontRecord {
     /// Tags the user typed.
     #[serde(default)]
     pub custom_tags: Vec<String>,
+    /// A font the app doesn't own: installed in Windows or synced by Adobe Fonts.
+    #[serde(default)]
+    pub external: bool,
+    /// Position inside a .ttc collection file.
+    #[serde(default)]
+    pub index: u32,
+}
+
+/// Tags the user set on fonts the app doesn't own (system and Adobe fonts).
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ExternalMeta {
+    #[serde(default)]
+    pub custom_tags: Vec<String>,
+    #[serde(default)]
+    pub hidden_ai_tags: Vec<String>,
+    #[serde(default)]
+    pub ai_tags: Vec<String>,
 }
 
 fn yes() -> bool {
@@ -92,6 +110,9 @@ pub struct Library {
     /// Version of the style detection that filled in classification/spacing.
     #[serde(default)]
     pub detection: u32,
+    /// Tags for system and Adobe fonts, keyed by font id.
+    #[serde(default)]
+    pub external_meta: std::collections::BTreeMap<String, ExternalMeta>,
 }
 
 /// Bump when the style detection improves, so existing libraries are re-read once.
@@ -147,6 +168,20 @@ pub struct ImportReport {
     pub duo_tagged: usize,
     /// Every font id touched (added or skipped), in order — what the collection receives.
     pub font_ids: Vec<String>,
+    /// Imported families that share a name with a system or Adobe font.
+    #[serde(default)]
+    pub conflicts: Vec<NameConflict>,
+}
+
+/// An imported family whose name matches a system or Adobe font.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NameConflict {
+    pub family: String,
+    /// "System" or "Adobe Fonts".
+    pub other_origin: String,
+    /// Ids of the imported fonts in that family.
+    pub ids: Vec<String>,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq)]

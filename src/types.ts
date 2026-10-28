@@ -25,6 +25,16 @@ export interface FontRecord {
   aiTags: string[];
   hiddenAiTags: string[];
   customTags: string[];
+  /** System or Adobe Fonts font: listed, never moved, deleted or deactivated. */
+  external?: boolean;
+  /** Position inside a .ttc collection file. */
+  index?: number;
+}
+
+export interface ExternalMeta {
+  customTags: string[];
+  hiddenAiTags: string[];
+  aiTags: string[];
 }
 
 export interface Collection {
@@ -40,6 +50,19 @@ export interface Library {
   collections: Collection[];
   origins: string[];
   detection?: number;
+  externalMeta?: Record<string, ExternalMeta>;
+}
+
+export interface NameConflict {
+  family: string;
+  otherOrigin: string;
+  ids: string[];
+}
+
+export interface Settings {
+  adobeDir: string;
+  adobeDirIsDefault: boolean;
+  adobeDirExists: boolean;
 }
 
 export interface ImportReport {
@@ -49,6 +72,7 @@ export interface ImportReport {
   licencesKept: number;
   duoTagged: number;
   fontIds: string[];
+  conflicts?: NameConflict[];
 }
 
 export interface AppState {

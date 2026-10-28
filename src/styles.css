@@ -55,10 +55,10 @@ input[type="range"] { accent-color: var(--amber); }
 .app { height: 100%; display: flex; flex-direction: column; position: relative; }
 
 /* Header */
-.header { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--surface); }
+.header { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 14px 20px; border-bottom: 1px solid var(--line); background: var(--surface); }
 .brand { display: flex; align-items: center; gap: 10px; flex: 0 0 248px; width: 248px; }
 .brand span { font-weight: 600; font-size: 15px; }
-.sample { flex: 1 1 360px; min-width: 0; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--field); color: var(--ink); font-size: 15px; }
+.sample { flex: 1 1 200px; min-width: 0; height: 40px; padding: 0 14px; border-radius: 8px; border: 1px solid var(--line); background: var(--field); color: var(--ink); font-size: 15px; }
 .sliders { display: grid; grid-template-columns: 84px 120px; align-items: center; column-gap: 8px; row-gap: 2px; }
 .sliders label { font-size: 12px; font-weight: 600; color: var(--muted); }
 .sliders input { width: 120px; margin: 0; }
@@ -181,3 +181,5 @@ code { padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size:
 .drop-overlay { position: absolute; inset: 0; z-index: 60; background: rgba(255, 191, 0, 0.12); border: 3px dashed var(--amber); display: flex; align-items: center; justify-content: center; pointer-events: none; }
 .drop-overlay div { padding: 18px 26px; border-radius: 12px; background: var(--field); font-size: 16px; font-weight: 600; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18); }
 .ghost { position: fixed; z-index: 70; pointer-events: none; padding: 8px 12px; border-radius: 8px; background: var(--amber); color: #343434; font-weight: 600; font-size: 13px; box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2); }
+.clear-filters { align-self: flex-start; margin: 0 8px; display: inline-flex; align-items: center; gap: 6px; height: 32px; padding: 0 12px; border: 0; border-radius: 16px; background: var(--amber); color: #343434; font-size: 12px; font-weight: 600; cursor: pointer; }
+.titlebar > .round { align-self: flex-end; }

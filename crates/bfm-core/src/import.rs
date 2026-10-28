@@ -259,6 +259,8 @@ pub fn import_paths(lib: &mut Library, inputs: &[PathBuf], library_dir: &Path, o
                 ai_tags: vec![],
                 hidden_ai_tags: vec![],
                 custom_tags: vec![],
+                external: false,
+                index: 0,
             });
             added_here.push(lib.fonts.len() - 1);
             report.added.push(id.clone());

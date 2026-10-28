@@ -1,22 +1,41 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { listen } from "@tauri-apps/api/event";
 import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as autostartEnabled } from "@tauri-apps/plugin-autostart";
 import { api } from "./api";
-import type { FontRecord, ImportReport, Library } from "./types";
+import type { ExternalMeta, FontRecord, ImportReport, Library, Settings } from "./types";
 import {
   ALL, buildFamilies, cloneLibrary, filterGroups, fontFaceName, matchesFilters, tagList, weightName,
   type Family, type Filters,
 } from "./model";
 import {
-  IconArrowIn, IconCheckCircle, IconDots, IconFocus, IconFolder, IconGear, IconGrid, IconList, IconMinusCircle,
+  IconAlignCenter, IconAlignLeft, IconArrowIn, IconCheckCircle, IconClock, IconX, IconDots, IconFocus, IconFolder, IconGear, IconGrid, IconList, IconMinusCircle,
   IconMoon, IconPlus, IconSearch, IconSun, IconTrash, IconUpload, Logo, Star,
 } from "./icons";
 
 type UndoEntry = { kind: "meta"; snapshot: Library } | { kind: "delete"; snapshot: Library; removed: FontRecord[] };
-type Modal = null | "import" | "report" | "settings";
+type Modal = null | "import" | "report" | "settings" | "adobe";
+
+const ADOBE = "Adobe Fonts";
+
+/** Tags editable on any font; for system and Adobe fonts they live in the library's externalMeta. */
+type TagHolder = Pick<FontRecord, "customTags" | "hiddenAiTags" | "aiTags">;
+
+function editTags(l: Library, ids: string[], fn: (h: TagHolder) => void) {
+  const want = new Set(ids);
+  for (const f of l.fonts) if (want.has(f.id)) fn(f);
+  const meta = (l.externalMeta ??= {});
+  for (const id of ids) {
+    if (l.fonts.some((f) => f.id === id)) continue;
+    const m: ExternalMeta = meta[id] ?? { customTags: [], hiddenAiTags: [], aiTags: [] };
+    fn(m);
+    if (m.customTags.length || m.hiddenAiTags.length || m.aiTags.length) meta[id] = m;
+    else delete meta[id];
+  }
+}
 
 const DEFAULT_ORIGINS = ["Envato", "Google Fonts", "Creative Market", "Client"];
 const EMPTY: Library = { version: 1, fonts: [], collections: [], origins: [] };
@@ -65,6 +84,10 @@ export default function App() {
   const [caps, setCaps] = usePref("caps", false);
   const [allText, setAllText] = usePref("allText", "Aa Bb Cc");
   const [focus, setFocus] = useState(false);
+  const [align, setAlign] = usePref<"left" | "center">("align", "left");
+  const [external, setExternal] = useState<FontRecord[] | null>(null);
+  const [settings, setSettings] = useState<Settings | null>(null);
+  const [adobeRange, setAdobeRange] = useState<"today" | "week">("today");
 
   const [coll, setColl] = useState<string>(ALL);
   const [target, setTarget] = useState<string>("");
@@ -195,6 +218,16 @@ export default function App() {
       .catch(() => setStartup(false));
   }, [say]);
 
+  // System and Adobe fonts are listed in the background; the list arrives when ready.
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    const load = () => api.getExternal().then((x) => x && setExternal(x)).catch(() => {});
+    listen("external-fonts", load).then((u) => (unlisten = u)).catch(() => {});
+    load();
+    api.getSettings().then(setSettings).catch(() => {});
+    return () => unlisten?.();
+  }, []);
+
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
   }, [dark]);
@@ -251,7 +284,13 @@ export default function App() {
   }
 
   // ---------- derived ----------
-  const families = useMemo(() => buildFamilies(lib.fonts), [lib.fonts]);
+  const allFonts = useMemo(() => {
+    if (!external?.length) return lib.fonts;
+    const meta = lib.externalMeta ?? {};
+    const ext = external.map((f) => (meta[f.id] ? { ...f, ...meta[f.id] } : f));
+    return [...lib.fonts, ...ext];
+  }, [lib.fonts, lib.externalMeta, external]);
+  const families = useMemo(() => buildFamilies(allFonts), [allFonts]);
   const famByKey = useMemo(() => new Map(families.map((f) => [f.key, f])), [families]);
   const collection = lib.collections.find((c) => c.name === coll) ?? null;
   const inColl = coll !== ALL && !!collection;
@@ -287,6 +326,8 @@ export default function App() {
   const cellH = Math.round(size * 1.3 + (size * 0.4 + 60) * pad);
   const padV = Math.round(22 * pad);
   const padH = Math.round(24 * pad);
+  // The left inset stays put; the Padding slider only changes the space above, below and to the right.
+  const padL = 24;
   const padB = Math.round(14 * pad);
   const gap = Math.max(4, Math.round(14 * pad));
 
@@ -307,12 +348,24 @@ export default function App() {
     fonts.ready.then(measure).catch(() => {});
     return () => fonts.removeEventListener("loadingdone", measure);
   }, [measure]);
-  const cellW = focus ? Math.max(140, textW + padH + 52 + 4) : Math.max(230, textW + padH * 2 + 4);
+  // Cards are at least as wide as the widest preview, and stretch to fill the row.
+  const cellW = focus ? Math.max(140, textW + padL + 52 + 4) : Math.max(230, textW + padL + padH + 4);
 
   const faces = useMemo(
-    () => lib.fonts.map((f) => `@font-face{font-family:"${fontFaceName(f.id)}";src:url("${convertFileSrc(f.path)}");font-display:block;}`).join("\n"),
-    [lib.fonts],
+    () =>
+      allFonts
+        .map((f) => {
+          // System and Adobe fonts are installed already, so the installed copy is used first.
+          const local = f.external ? `local("${f.postscriptName.replace(/"/g, "")}")` : "";
+          const ttc = /\.(ttc|otc)$/i.test(f.path) || (f.index ?? 0) > 0;
+          const url = ttc ? "" : `url("${convertFileSrc(f.path)}")`;
+          const src = [local, url].filter(Boolean).join(",");
+          return src ? `@font-face{font-family:"${fontFaceName(f.id)}";src:${src};font-display:block;}` : "";
+        })
+        .join("\n"),
+    [allFonts],
   );
+  const anyFilter = Object.values(filters).some(Boolean);
 
   // ---------- selection ----------
   function pick(fam: Family, e: React.MouseEvent) {
@@ -362,7 +415,7 @@ export default function App() {
   }
 
   function familyOf(id: string) {
-    const f = libRef.current.fonts.find((x) => x.id === id);
+    const f = libRef.current.fonts.find((x) => x.id === id) ?? external?.find((x) => x.id === id);
     return f ? `${f.origin}|${f.family}` : id;
   }
 
@@ -440,6 +493,7 @@ export default function App() {
   }
 
   async function deleteFromLibrary(fams: Family[]) {
+    fams = fams.filter((f) => !f.rep.external);
     const ids = fams.flatMap((f) => f.ids);
     if (!ids.length) return;
     const snapshot = cloneLibrary(libRef.current);
@@ -458,7 +512,9 @@ export default function App() {
     setTagVal("");
     if (!val || !selectedIds.length) return;
     commit((l) => {
-      for (const f of l.fonts) if (selectedIds.includes(f.id) && !f.customTags.includes(val)) f.customTags.push(val);
+      editTags(l, selectedIds, (f) => {
+        if (!f.customTags.includes(val)) f.customTags.push(val);
+      });
     }, `Added the tag ${val}${selected.length > 1 ? ` to ${plural(selected.length)}` : ""}`, false);
   }
 
@@ -467,12 +523,44 @@ export default function App() {
     const fams = selected.filter((f) => tagList(f).some((t) => t.label === label && !t.fixed));
     const ids = fams.flatMap((f) => f.ids);
     commit((l) => {
-      for (const f of l.fonts) {
-        if (!ids.includes(f.id)) continue;
+      editTags(l, ids, (f) => {
         f.customTags = f.customTags.filter((t) => t !== label);
         if (f.aiTags.includes(label) && !f.hiddenAiTags.includes(label)) f.hiddenAiTags.push(label);
-      }
+      });
     }, `Removed the tag ${label}${fams.length > 1 ? ` from ${plural(fams.length)}` : ""}`);
+  }
+
+  // ---------- Adobe Fonts added recently ----------
+  function recentAdobe(range: "today" | "week"): Family[] {
+    const start = new Date();
+    start.setHours(0, 0, 0, 0);
+    if (range === "week") start.setDate(start.getDate() - 6);
+    const since = start.getTime() / 1000;
+    return families.filter((f) => f.origin === ADOBE && f.addedAt >= since).sort((a, b) => b.addedAt - a.addedAt);
+  }
+
+  function addRecentAdobe() {
+    const fams = recentAdobe(adobeRange);
+    setModal(null);
+    if (!fams.length || !inColl) return;
+    addToCollection(coll, fams.flatMap((f) => f.ids));
+  }
+
+  async function changeAdobeDir(dir: string | null) {
+    const res = await run(() => api.setAdobeDir(dir));
+    if (res) {
+      setSettings(res);
+      say(res.adobeDirExists ? "Adobe Fonts folder updated" : "That folder doesn't exist. Adobe Fonts won't be listed until it does.");
+    }
+  }
+
+  async function rescan() {
+    say("Looking for system and Adobe fonts…");
+    const res = await run(() => api.rescanExternal());
+    if (res) {
+      setExternal(res);
+      say(`Found ${res.length} system and Adobe font files`);
+    }
   }
 
   // ---------- sample text ----------
@@ -540,7 +628,7 @@ export default function App() {
         setSel(shown.map((f) => f.key));
       } else if (e.key === "Escape") {
         clearSel();
-        setModal((m) => (m === "import" || m === "settings" || m === "report" ? null : m));
+        setModal((m) => (m === "import" || m === "settings" || m === "report" || m === "adobe" ? null : m));
       } else if ((e.key === "Delete" || e.key === "Backspace") && !modal && inColl && selected.length) {
         e.preventDefault();
         removeFromCollection(selected);
@@ -570,6 +658,7 @@ export default function App() {
   const previewStyle = (f: FontRecord): React.CSSProperties => ({
     fontFamily: `"${fontFaceName(f.id)}", "Segoe UI", sans-serif`,
     fontSize: size,
+    textAlign: align,
     textTransform: caps ? "uppercase" : "none",
   });
 
@@ -578,6 +667,7 @@ export default function App() {
   }
 
   function ActiveSwitch({ fam }: { fam: Family }) {
+    if (fam.rep.external) return <span className="icon44" title={fam.origin === ADOBE ? "Turned on and off in Adobe Creative Cloud" : "Installed in Windows: always available"} />;
     return (
       <button
         type="button"
@@ -625,6 +715,14 @@ export default function App() {
         <button type="button" className="caps" aria-pressed={caps} aria-label="Show previews in capitals" title="All caps" onClick={() => setCaps(!caps)}>
           {caps ? "AA" : "Aa"}
         </button>
+        <div className="seg">
+          <button type="button" aria-label="Align previews left" title="Align left" aria-pressed={align === "left"} onClick={() => setAlign("left")}>
+            <IconAlignLeft />
+          </button>
+          <button type="button" aria-label="Centre previews" title="Centre" aria-pressed={align === "center"} onClick={() => setAlign("center")}>
+            <IconAlignCenter />
+          </button>
+        </div>
         <div className="seg">
           <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}>
             <IconGrid />
@@ -724,6 +822,11 @@ export default function App() {
               })}
             </section>
 
+            {anyFilter && (
+              <button type="button" className="clear-filters" onClick={() => setFilters({})}>
+                <IconX size={14} /> Clear filters
+              </button>
+            )}
             {groups.map((g) => (
               <section key={g.key} style={{ display: "flex", flexDirection: "column", gap: 8 }}>
                 <h2 style={{ padding: "0 8px" }}>{g.label}</h2>
@@ -765,6 +868,11 @@ export default function App() {
                   </select>
                 </div>
               </div>
+              {inColl && (
+                <button type="button" className="round" aria-label="Add recent Adobe Fonts to this collection" title="Add recent Adobe Fonts" onClick={() => setModal("adobe")}>
+                  <IconClock />
+                </button>
+              )}
             </div>
           )}
 
@@ -791,13 +899,21 @@ export default function App() {
           {families.length === 0 ? (
             <p className="empty">Your library is empty. Drop zip, OTF or TTF files anywhere in this window, or click Import fonts.</p>
           ) : shown.length === 0 ? (
-            <p className="empty">{inColl && !collection!.fontIds.length ? "This collection is empty. Drag fonts onto it, or import with this collection's name." : "No fonts match this search or these filters."}</p>
+            <p className="empty">
+              {inColl && !collection!.fontIds.length ? "This collection is empty. Drag fonts onto it, or import with this collection's name." : "No fonts match this search or these filters."}
+              {anyFilter && (
+                <>
+                  {" "}
+                  <button type="button" className="link" onClick={() => setFilters({})}>Clear filters</button>
+                </>
+              )}
+            </p>
           ) : view === "list" && !focus ? (
             <div className="list">
               {shown.map((fam) => {
                 const isSel = sel.includes(fam.key);
                 return (
-                  <div key={fam.key} data-font-cell="true" className={`row${isSel ? " sel" : ""}`} style={{ paddingLeft: padH }} onPointerDown={(e) => onCardPointerDown(fam, e)}>
+                  <div key={fam.key} data-font-cell="true" className={`row${isSel ? " sel" : ""}`} style={{ paddingLeft: padL }} onPointerDown={(e) => onCardPointerDown(fam, e)}>
                     <div className="info">
                       <div className="fname">{fam.family}</div>
                       <div className="fsub">{famSub(fam)}</div>
@@ -816,7 +932,7 @@ export default function App() {
               })}
             </div>
           ) : (
-            <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill, min(${cellW}px, 100%))`, gap }}>
+            <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${cellW}px, 100%), 1fr))`, gap }}>
               {shown.map((fam) => {
                 const isSel = sel.includes(fam.key);
                 const inTarget = !!target && fam.ids.some((id) => lib.collections.find((c) => c.name === target)?.fontIds.includes(id));
@@ -826,7 +942,7 @@ export default function App() {
                       type="button"
                       className="preview"
                       aria-label={`Select ${fam.family}`}
-                      style={{ paddingTop: padV, paddingBottom: focus ? padV : padB, paddingLeft: padH, paddingRight: focus ? 52 : padH, minHeight: cellH }}
+                      style={{ paddingTop: padV, paddingBottom: focus ? padV : padB, paddingLeft: padL, paddingRight: focus ? 52 : padH, minHeight: cellH }}
                       onClick={(e) => pick(fam, e)}
                     >
                       <span style={previewStyle(fam.rep)}>{previewText}</span>
@@ -859,7 +975,7 @@ export default function App() {
                         )
                       )
                     ) : (
-                      <div className="card-foot" style={{ paddingLeft: padH }}>
+                      <div className="card-foot" style={{ paddingLeft: padL }}>
                         <div className="info">
                           <div className="fname">{fam.family}</div>
                           <div className="fsub">{famSub(fam)}</div>
@@ -924,7 +1040,9 @@ export default function App() {
                   <dd>{primaryFam.rep.langs.join(", ") || "Latin basic only"}</dd>
                   <dt>Licence</dt>
                   <dd>
-                    {primaryFam.licence ? (
+                    {primaryFam.rep.external ? (
+                      primaryFam.origin === ADOBE ? "Adobe Fonts licence (your Creative Cloud plan)" : "Licensed with Windows"
+                    ) : primaryFam.licence ? (
                       <button type="button" className="link" onClick={() => openPath(primaryFam.licence!)}>
                         {primaryFam.licence.split(/[\\/]/).pop()}
                       </button>
@@ -944,17 +1062,25 @@ export default function App() {
                   <button type="button" className="btn block" title={primaryFam.rep.path} onClick={() => revealItemInDir(primaryFam.rep.path)}>
                     <IconFolder size={16} /> Show in folder
                   </button>
-                  <button type="button" className="btn block" onClick={() => setActive(selectedIds, !primaryFam.active)}>
-                    {primaryFam.active ? (selected.length > 1 ? "Deactivate fonts" : "Deactivate font") : selected.length > 1 ? "Activate fonts" : "Activate font"}
-                  </button>
+                  {primaryFam.rep.external ? (
+                    <p className="muted" style={{ fontSize: 12 }}>
+                      {primaryFam.origin === ADOBE ? "Synced by Adobe Fonts. Turn it on or off in the Creative Cloud app." : "Installed in Windows. It's always available, so it can't be deactivated or deleted here."}
+                    </p>
+                  ) : (
+                    <button type="button" className="btn block" onClick={() => setActive(selectedIds, !primaryFam.active)}>
+                      {primaryFam.active ? (selected.length > 1 ? "Deactivate fonts" : "Deactivate font") : selected.length > 1 ? "Activate fonts" : "Activate font"}
+                    </button>
+                  )}
                   {inColl && (
                     <button type="button" className="btn block" onClick={() => removeFromCollection(selected)}>
                       <IconMinusCircle /> Remove from collection (Del)
                     </button>
                   )}
-                  <button type="button" className="btn block" onClick={() => deleteFromLibrary(selected)}>
-                    <IconTrash /> Delete from library
-                  </button>
+                  {selected.some((f) => !f.rep.external) && (
+                    <button type="button" className="btn block" onClick={() => deleteFromLibrary(selected)}>
+                      <IconTrash /> Delete from library
+                    </button>
+                  )}
                 </div>
               </>
             )}
@@ -1027,6 +1153,28 @@ export default function App() {
                 <p>{report.report.skipped.map((s) => s.name).join(", ")}{report.collection ? ": added to the collection without copying them again." : "."}</p>
               </div>
             )}
+            {(report.report.conflicts?.length ?? 0) > 0 && (
+              <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+                <h3>Already on this computer</h3>
+                <p>
+                  {report.report.conflicts!.map((c) => `${c.family} (${c.otherOrigin})`).join(", ")}. Two fonts with the same name can get mixed up in Illustrator.
+                </p>
+                <div>
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={async () => {
+                      const ids = report.report.conflicts!.flatMap((c) => c.ids);
+                      const fams = families.filter((f) => f.ids.some((id) => ids.includes(id)));
+                      setModal(null);
+                      await deleteFromLibrary(fams);
+                    }}
+                  >
+                    <IconTrash size={15} /> Remove imported copies
+                  </button>
+                </div>
+              </div>
+            )}
             <p className="muted">
               {report.report.licencesKept === 1 ? "1 licence file" : `${report.report.licencesKept} licence files`} kept and linked to their fonts.
               {report.report.duoTagged > 0 ? ` ${plural(report.report.duoTagged)} tagged Duo (two families in the same zip).` : ""}
@@ -1048,6 +1196,30 @@ export default function App() {
                 <code style={{ flex: "1 1 auto" }}>{libraryDir}</code>
                 <button type="button" className="btn" onClick={() => openPath(libraryDir).catch(() => say("The folder will appear after your first import"))}>Open</button>
               </div>
+            </section>
+            <section style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+              <h3>Adobe Fonts folder</h3>
+              <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+                <code style={{ flex: "1 1 240px", minWidth: 0, overflowWrap: "anywhere" }}>{settings?.adobeDir || "Not found"}</code>
+                <button
+                  type="button"
+                  className="btn"
+                  onClick={async () => {
+                    const dir = await openDialog({ directory: true, defaultPath: settings?.adobeDir || undefined });
+                    if (typeof dir === "string") changeAdobeDir(dir);
+                  }}
+                >
+                  Change
+                </button>
+                {settings && !settings.adobeDirIsDefault && (
+                  <button type="button" className="btn" onClick={() => changeAdobeDir(null)}>Reset</button>
+                )}
+              </div>
+              <p className="muted" style={{ fontSize: 12 }}>
+                {settings && !settings.adobeDirExists ? "This folder doesn't exist yet. It appears once Creative Cloud syncs a font. " : ""}
+                {external ? `${families.filter((f) => f.rep.external).length} system and Adobe font families listed.` : "Looking for system and Adobe fonts…"}{" "}
+                <button type="button" className="link" onClick={rescan}>Look again</button>
+              </p>
             </section>
             <section style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
               <div>
@@ -1074,9 +1246,36 @@ export default function App() {
                 </span>
               </button>
             </section>
-            <p className="muted">Coming in the next updates: Adobe Fonts and system fonts, AI tagging, and Generate Artwork.</p>
+            <p className="muted">Coming in the next updates: AI tagging and Generate Artwork.</p>
             <div className="dialog-actions">
               <button type="button" className="btn primary" onClick={() => setModal(null)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modal === "adobe" && (
+        <div className="overlay">
+          <div className="dialog" role="dialog" aria-label="Add recent Adobe Fonts">
+            <div>
+              <h2>Add recent Adobe Fonts</h2>
+              <p className="muted" style={{ marginTop: 6 }}>Fonts you turned on in Creative Cloud, added to {coll}.</p>
+            </div>
+            <div className="seg" style={{ alignSelf: "flex-start" }}>
+              <button type="button" aria-pressed={adobeRange === "today"} onClick={() => setAdobeRange("today")} style={{ width: "auto", padding: "0 14px" }}>Today</button>
+              <button type="button" aria-pressed={adobeRange === "week"} onClick={() => setAdobeRange("week")} style={{ width: "auto", padding: "0 14px" }}>This week</button>
+            </div>
+            {(() => {
+              const fams = recentAdobe(adobeRange);
+              if (!external) return <p className="muted">Still looking for Adobe Fonts…</p>;
+              if (!fams.length) return <p className="muted">No Adobe Fonts were turned on {adobeRange === "today" ? "today" : "this week"}.</p>;
+              return <p>{fams.map((f) => f.family).join(", ")}</p>;
+            })()}
+            <div className="dialog-actions">
+              <button type="button" className="btn" onClick={() => setModal(null)}>Cancel</button>
+              <button type="button" className="btn primary" disabled={!recentAdobe(adobeRange).length} onClick={addRecentAdobe}>
+                Add {plural(recentAdobe(adobeRange).length).replace("font", "family").replace("familys", "families")}
+              </button>
             </div>
           </div>
         </div>

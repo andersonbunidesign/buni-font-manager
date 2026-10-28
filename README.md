@@ -18,6 +18,14 @@ Open the [Releases page](../../releases), download the file ending in **-setup.e
 
 Coming next: Adobe Fonts and system fonts in collections, AI tagging, Generate Artwork (Illustrator, Affinity, PDF).
 
+## New in 0.2
+
+- System fonts and Adobe Fonts appear in All fonts and the Sources filter, and can go into collections and get tags. They can't be deactivated or deleted from here.
+- Add recent Adobe Fonts (today or this week) to a collection with the clock button.
+- The import report warns when an imported font has the same name as one already on the computer.
+- Clear filters button; previews aligned left or centred; cards stretch to fill the row.
+- Adobe Fonts folder can be changed in Settings.
+
 ## Where your fonts live
 
 `C:\Users\<you>\Buni Font Manager\Library`, organised by origin and family. The library index is `library.json` next to it.

@@ -95,6 +95,28 @@ export const IconCheckCircle = (p: P) => (
   </S>
 );
 
+export const IconAlignLeft = (p: P) => (
+  <S {...p}>
+    <path d="M4 6h16M4 12h10M4 18h13" />
+  </S>
+);
+export const IconAlignCenter = (p: P) => (
+  <S {...p}>
+    <path d="M4 6h16M7 12h10M5.5 18h13" />
+  </S>
+);
+export const IconClock = (p: P) => (
+  <S {...p}>
+    <circle cx="12" cy="12" r="8" />
+    <path d="M12 8v4l3 2" />
+  </S>
+);
+export const IconX = (p: P) => (
+  <S {...p}>
+    <path d="M7 7l10 10M17 7L7 17" />
+  </S>
+);
+
 export function Star({ on, size = 20 }: { on: boolean; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={on ? "#FFBF00" : "none"} stroke={on ? "#C99700" : "var(--star-off)"} strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">
