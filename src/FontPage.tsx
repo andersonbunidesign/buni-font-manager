@@ -3,6 +3,7 @@ import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { FontRecord, GlyphMap } from "./types";
 import { fontFaceName, weightName, type Family } from "./model";
+import { IS_MAC } from "./platform";
 
 // Windows-1252 characters 0x80–0x9F, typed with Alt+0128 … Alt+0159.
 const CP1252_HIGH: Record<number, number> = {
@@ -12,8 +13,36 @@ const CP1252_HIGH: Record<number, number> = {
   0x0153: 0x9c, 0x017e: 0x9e, 0x0178: 0x9f,
 };
 
-/** How to type a character on Windows. */
+// Mac (US and most Latin layouts): Option shortcuts and dead keys for accents.
+const MAC_OPT: Record<string, string> = {
+  "©": "G", "®": "R", "™": "2", "€": "Shift 2", "•": "8", "–": "-", "—": "Shift -", "“": "[", "”": "Shift [", "‘": "]", "’": "Shift ]",
+  "…": ";", "°": "Shift 8", "±": "Shift =", "÷": "/", "≠": "=", "≤": ",", "≥": ".", "¢": "4", "£": "3", "¥": "Y", "§": "6", "¶": "7",
+  "ß": "S", "ø": "O", "Ø": "Shift O", "å": "A", "Å": "Shift A", "æ": "'", "Æ": "Shift '", "œ": "Q", "Œ": "Shift Q", "ç": "C",
+  "Ç": "Shift C", "¡": "1", "¿": "Shift /", "«": "\\", "»": "Shift \\", "π": "P", "∞": "5", "µ": "M", "√": "V", "∑": "W", "ƒ": "F",
+  "∆": "J", "†": "T", "‡": "Shift 7", "‰": "Shift R", "¬": "L", "∂": "D", "Ω": "Z", "≈": "X", "º": "0", "ª": "9", "·": "Shift 9",
+  "‹": "Shift 3", "›": "Shift 4", "„": "Shift W", "‚": "Shift 0", "ﬁ": "Shift 5", "ﬂ": "Shift 6", "\uf8ff": "Shift K",
+};
+const MAC_DEAD: Record<string, [string, string]> = {
+  "\u0301": ["E", "acute"], "\u0300": ["`", "grave"], "\u0302": ["I", "circumflex"], "\u0308": ["U", "umlaut"], "\u0303": ["N", "tilde"],
+};
+
+function howToTypeMac(cp: number): string {
+  if (cp === 0x20) return "Space bar";
+  if (cp >= 0x21 && cp <= 0x7e) return `Keyboard key ${String.fromCodePoint(cp)}`;
+  const ch = String.fromCodePoint(cp);
+  if (MAC_OPT[ch]) return `Option + ${MAC_OPT[ch]}`;
+  // Accented letters: Option + accent key, then the letter.
+  const parts = ch.normalize("NFD");
+  if (parts.length === 2 && /[a-zA-Z]/.test(parts[0]) && MAC_DEAD[parts[1]]) {
+    const [key, name] = MAC_DEAD[parts[1]];
+    return `Option + ${key}, then ${parts[0]} (${name})`;
+  }
+  return "No keyboard shortcut: click to copy it, use the Character Viewer (Ctrl + Cmd + Space) or Illustrator's Glyphs panel";
+}
+
+/** How to type a character on this computer. */
 export function howToType(cp: number): string {
+  if (IS_MAC) return howToTypeMac(cp);
   if (cp === 0x20) return "Space bar";
   if (cp >= 0x21 && cp <= 0x7e) return `Keyboard key ${String.fromCodePoint(cp)}`;
   const b = cp >= 0xa0 && cp <= 0xff ? cp : CP1252_HIGH[cp];

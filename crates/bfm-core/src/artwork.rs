@@ -491,7 +491,7 @@ pub fn illustrator_script(spec: &ArtworkSpec, ai_path: &str, logo_svg: &str) -> 
     let plan = plan(spec)?;
     let (w, h) = page_size_pt();
     let mut js = String::new();
-    js.push_str("#target illustrator\n// Made by Buni Font Manager\n");
+    js.push_str("// Made by Buni Font Manager. Run it in Illustrator: File > Scripts > Other Script.\n");
     js.push_str(&format!("var W={w:.3},H={h:.3},K={K},GAP=40,AI_PATH={},LOGO={};\n", js_str(ai_path), js_str(logo_svg)));
     js.push_str(&format!("var LABEL={},LABEL_BOLD={};\n", js_str(&spec.label_postscript), js_str(&spec.label_bold_postscript)));
     js.push_str("var FONTS=[");

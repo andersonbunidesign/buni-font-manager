@@ -1,7 +1,7 @@
-name: Build Windows installer
+name: Build installers
 
-# Every push to main builds the app on a Windows machine and publishes the
-# installer on the Releases page, under the version in package.json.
+# Every push to main builds the app on Windows and macOS machines and publishes
+# the installers on the Releases page, under the version in package.json.
 on:
   push:
     branches: [main]
@@ -45,7 +45,51 @@ jobs:
           tagName: v__VERSION__
           releaseName: Buni Font Manager __VERSION__
           releaseBody: |
-            Download the file ending in **-setup.exe** below and run it.
+            **Windows:** download the file ending in **-setup.exe** and run it.
             Windows may show "Windows protected your PC" the first time: click **More info**, then **Run anyway**.
+
+            **Mac:** download the file ending in **.dmg**, open it and drag Buni Font Manager to Applications.
+            The first time, macOS says it can't check the app: open **System Settings > Privacy & Security**, scroll down and click **Open Anyway**.
+          releaseDraft: false
+          prerelease: false
+
+  macos:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Install interface packages
+        run: npm ci
+
+      - name: Test the font engine
+        run: cargo test -p bfm-core
+
+      - name: Build and publish the Mac app (Apple silicon and Intel)
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          args: --target universal-apple-darwin --bundles dmg
+          tagName: v__VERSION__
+          releaseName: Buni Font Manager __VERSION__
+          releaseBody: |
+            **Windows:** download the file ending in **-setup.exe** and run it.
+            Windows may show "Windows protected your PC" the first time: click **More info**, then **Run anyway**.
+
+            **Mac:** download the file ending in **.dmg**, open it and drag Buni Font Manager to Applications.
+            The first time, macOS says it can't check the app: open **System Settings > Privacy & Security**, scroll down and click **Open Anyway**.
           releaseDraft: false
           prerelease: false

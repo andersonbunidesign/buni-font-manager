@@ -17,6 +17,7 @@ import {
 } from "./icons";
 import { ColorPicker, Slider, normHex } from "./controls";
 import { FontPage } from "./FontPage";
+import { OS } from "./platform";
 
 /** Sets the preview size without re-rendering the cards. */
 function setPvSize(v: number) {
@@ -800,7 +801,7 @@ export default function App() {
   }
 
   function ActiveSwitch({ fam }: { fam: Family }) {
-    if (fam.rep.external) return <span className="icon44" title={fam.origin === ADOBE ? "Turned on and off in Adobe Creative Cloud" : "Installed in Windows: always available"} />;
+    if (fam.rep.external) return <span className="icon44" title={fam.origin === ADOBE ? "Turned on and off in Adobe Creative Cloud" : `${OS.installed}: always available`} />;
     return (
       <button
         type="button"
@@ -818,7 +819,7 @@ export default function App() {
   }
 
   const sourcesCount = families.length;
-  const hint = inColl ? "Ctrl/Shift-click to select, drag onto a collection, Del removes" : "Ctrl/Shift-click to select several, drag onto a collection";
+  const hint = inColl ? `${OS.mod}/Shift-click to select, drag onto a collection, Del removes` : `${OS.mod}/Shift-click to select several, drag onto a collection`;
 
   if (!loaded) return <div className="app" />;
 
@@ -1095,7 +1096,7 @@ export default function App() {
             <div className="flash" role="status">
               <span>{flash.msg}</span>
               {flash.undo && (
-                <button type="button" onClick={undo}>Undo (Ctrl+Z)</button>
+                <button type="button" onClick={undo}>Undo ({OS.undo})</button>
               )}
             </div>
           )}
@@ -1249,7 +1250,7 @@ export default function App() {
                   <dt>Licence</dt>
                   <dd>
                     {primaryFam.rep.external ? (
-                      primaryFam.origin === ADOBE ? "Adobe Fonts licence (your Creative Cloud plan)" : "Licensed with Windows"
+                      primaryFam.origin === ADOBE ? "Adobe Fonts licence (your Creative Cloud plan)" : OS.licensed
                     ) : primaryFam.licence ? (
                       <button type="button" className="link" onClick={() => openPath(primaryFam.licence!)}>
                         {primaryFam.licence.split(/[\\/]/).pop()}
@@ -1272,7 +1273,7 @@ export default function App() {
                   </button>
                   {primaryFam.rep.external ? (
                     <p className="muted" style={{ fontSize: 12 }}>
-                      {primaryFam.origin === ADOBE ? "Synced by Adobe Fonts. Turn it on or off in the Creative Cloud app." : "Installed in Windows. It's always available, so it can't be deactivated or deleted here."}
+                      {primaryFam.origin === ADOBE ? "Synced by Adobe Fonts. Turn it on or off in the Creative Cloud app." : `${OS.installed}. It's always available, so it can't be deactivated or deleted here.`}
                     </p>
                   ) : (
                     <button type="button" className="btn block" onClick={() => setActive(selectedIds, !primaryFam.active)}>
@@ -1433,13 +1434,13 @@ export default function App() {
             </section>
             <section style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16 }}>
               <div>
-                <p style={{ fontWeight: 600, fontSize: 14 }}>Start with Windows</p>
+                <p style={{ fontWeight: 600, fontSize: 14 }}>{OS.startup}</p>
                 <p className="muted" style={{ marginTop: 4, fontSize: 12 }}>Runs quietly in the system tray and re-activates your fonts after a restart.</p>
               </div>
               <button
                 type="button"
                 className="icon44"
-                aria-label="Start with Windows"
+                aria-label={OS.startup}
                 aria-pressed={startup}
                 onClick={async () => {
                   try {
@@ -1483,7 +1484,7 @@ export default function App() {
                   {file.fonts.map((u) => {
                     const m = matchUsed(u);
                     const label = m ? `${m.family} ${m.style}` : u.family ? `${u.family} ${u.style ?? ""}`.trim() : u.postscript;
-                    const status = !m ? "Missing" : m.external ? (m.origin === ADOBE ? "Adobe Fonts" : "Installed in Windows") : m.active ? "Active" : "Inactive";
+                    const status = !m ? "Missing" : m.external ? (m.origin === ADOBE ? "Adobe Fonts" : OS.installed) : m.active ? "Active" : "Inactive";
                     return (
                       <div className="design-row" key={u.postscript}>
                         <span className={`status ${!m ? "missing" : m.active || m.external ? "ok" : "off"}`}>{status}</span>

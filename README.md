@@ -18,6 +18,14 @@ Open the [Releases page](../../releases), download the file ending in **-setup.e
 
 Coming next: Adobe Fonts and system fonts in collections, AI tagging, Generate Artwork (Illustrator, Affinity, PDF).
 
+## New in 1.1: Mac version
+
+- A Mac app (Apple silicon and Intel, macOS 11 or later), as a .dmg on the Releases page.
+- Fonts are turned on and off with macOS's own font manager; system fonts and Adobe Fonts are listed as on Windows.
+- Generate Artwork for Illustrator works through AppleScript (macOS asks once to allow controlling Illustrator).
+- The character table shows Option-key shortcuts.
+- The app isn't signed with an Apple Developer account yet: the first time, open System Settings > Privacy & Security and click Open Anyway.
+
 ## New in 1.0
 
 - Double-click a preview to open the font page: the sample text, every weight, and a table of all its characters. Hover a character to see its code and how to type it on Windows (Alt codes); click to copy it. Alternates and ligatures are shown too.

@@ -75,6 +75,12 @@ fn scan_sources(settings: &Settings) -> Vec<ScanSource> {
         if let Some(l) = std::env::var_os("LOCALAPPDATA") {
             v.push(sys(PathBuf::from(l).join("Microsoft").join("Windows").join("Fonts"), false));
         }
+    } else if cfg!(target_os = "macos") {
+        v.push(sys(PathBuf::from("/System/Library/Fonts"), true));
+        v.push(sys(PathBuf::from("/Library/Fonts"), true));
+        if let Some(h) = dirs::home_dir() {
+            v.push(sys(h.join("Library/Fonts"), true));
+        }
     } else {
         v.push(sys(PathBuf::from("/usr/share/fonts"), true));
         if let Some(h) = dirs::home_dir() {
@@ -165,6 +171,8 @@ struct StateDto {
     library: Library,
     library_dir: String,
     version: String,
+    /// "windows", "macos" or "linux".
+    platform: String,
 }
 
 #[derive(Serialize)]
@@ -195,6 +203,7 @@ fn get_state(app: AppHandle, data: State<AppData>) -> StateDto {
         library: data.lib.lock().unwrap().clone(),
         library_dir: data.paths.library_dir().to_string_lossy().to_string(),
         version: app.package_info().version.to_string(),
+        platform: std::env::consts::OS.to_string(),
     }
 }
 
@@ -550,6 +559,13 @@ pub fn run() {
                 api.prevent_close();
             }
         })
-        .run(tauri::generate_context!())
-        .expect("error while running Buni Font Manager");
+        .build(tauri::generate_context!())
+        .expect("error while running Buni Font Manager")
+        .run(|_app, _event| {
+            // macOS: clicking the Dock icon brings the hidden window back.
+            #[cfg(target_os = "macos")]
+            if let tauri::RunEvent::Reopen { .. } = _event {
+                show_main(_app);
+            }
+        });
 }
