@@ -80,3 +80,22 @@ export interface AppState {
   libraryDir: string;
   version: string;
 }
+
+export interface UsedFont {
+  postscript: string;
+  family: string | null;
+  style: string | null;
+}
+
+export interface DesignFileFonts {
+  file: string;
+  name: string;
+  fonts: UsedFont[];
+  error: string | null;
+}
+
+export interface ArtworkInfo {
+  pages: number;
+  failed: string[];
+  outlined: string[];
+}

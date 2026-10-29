@@ -59,25 +59,30 @@ pub fn read_font_at(data: &[u8], index: u32) -> Result<FontInfo, ReadError> {
 
     let name = |ids: &[u16]| -> Option<String> {
         for id in ids {
-            // Prefer Windows/Unicode records, then anything readable.
-            let mut fallback = None;
+            // Prefer English Windows records (Windows fonts also carry Catalan,
+            // German… names), then any Windows record, then anything readable.
+            let mut best: Option<(u8, String)> = None;
             for n in face.names() {
                 if n.name_id != *id {
                     continue;
                 }
-                if let Some(s) = n.to_string() {
-                    let s = s.trim().to_string();
-                    if s.is_empty() {
-                        continue;
-                    }
-                    if n.platform_id == ttf_parser::PlatformId::Windows {
-                        return Some(s);
-                    }
-                    fallback.get_or_insert(s);
+                let Some(s) = n.to_string() else { continue };
+                let s = s.trim().to_string();
+                if s.is_empty() {
+                    continue;
+                }
+                let rank = match (n.platform_id, n.language_id) {
+                    (ttf_parser::PlatformId::Windows, 0x0409) => 0,
+                    (ttf_parser::PlatformId::Macintosh, 0) => 1,
+                    (ttf_parser::PlatformId::Windows, _) => 2,
+                    _ => 3,
+                };
+                if best.as_ref().map(|(r, _)| rank < *r).unwrap_or(true) {
+                    best = Some((rank, s));
                 }
             }
-            if fallback.is_some() {
-                return fallback;
+            if let Some((_, s)) = best {
+                return Some(s);
             }
         }
         None
@@ -88,9 +93,10 @@ pub fn read_font_at(data: &[u8], index: u32) -> Result<FontInfo, ReadError> {
     let full_name = name(&[name_id::FULL_NAME]).unwrap_or_else(|| format!("{family} {style}"));
     let postscript_name = name(&[name_id::POST_SCRIPT_NAME]).unwrap_or_else(|| full_name.replace(' ', ""));
 
-    let weight = face.weight().to_number();
+    let weight = refine_weight(face.weight().to_number(), &style);
     let width = face.width().to_number();
-    let italic = face.is_italic() || face.is_oblique();
+    let style_l = style.to_lowercase();
+    let italic = face.is_italic() || face.is_oblique() || ["italic", "oblique", "slanted", "kursiv", "cursiva"].iter().any(|w| style_l.contains(w));
     let monospace = face.is_monospaced();
     let variable = face.is_variable();
     let axes = face.variation_axes().into_iter().map(|a| a.tag.to_string()).collect();
@@ -110,7 +116,7 @@ pub fn read_font_at(data: &[u8], index: u32) -> Result<FontInfo, ReadError> {
     let shape = analyse(&face);
     let classification = classify(&family, &full_name, family_class, panose, classify_shape(&shape, italic));
     // Swash capitals make scripts look wide, so only measure width for regular text styles.
-    let measured = if matches!(classification.as_str(), "Script" | "Handwritten") { None } else { spacing_shape(&shape) };
+    let measured = if classification == "Script" { None } else { spacing_shape(&shape) };
     let spacing = spacing_of(monospace || shape.fixed_pitch, width, &format!("{family} {style}"), measured);
 
     let has_all = |chars: &str| chars.chars().all(|c| face.glyph_index(c).is_some());
@@ -149,20 +155,46 @@ pub fn read_font_at(data: &[u8], index: u32) -> Result<FontInfo, ReadError> {
     })
 }
 
-/// Picks one of: Serif, Sans serif, Script, Decorative, Handwritten, Blackletter, Symbols.
-/// Uses the font's own name first (designers name these reliably), then the
-/// OS/2 family class, then PANOSE.
+/// Some fonts (often the ones Adobe Fonts serves) say 400 in every style;
+/// then the style name tells the weight.
+pub fn refine_weight(os2: u16, style: &str) -> u16 {
+    if os2 != 400 && os2 != 0 {
+        return os2;
+    }
+    let s = style.to_lowercase().replace(['-', '_', ' '], "");
+    let table: [(&[&str], u16); 9] = [
+        (&["hairline", "thin"], 100),
+        (&["extralight", "ultralight", "xlight"], 200),
+        (&["semilight", "demilight"], 350),
+        (&["light"], 300),
+        (&["semibold", "demibold", "demi"], 600),
+        (&["extrabold", "ultrabold", "xbold", "heavy"], 800),
+        (&["extrablack", "ultrablack", "xblack", "black", "ultra", "fat"], 900),
+        (&["bold"], 700),
+        (&["medium"], 500),
+    ];
+    for (words, w) in table {
+        if words.iter().any(|x| s.contains(x)) {
+            return w;
+        }
+    }
+    if os2 == 0 { 400 } else { os2 }
+}
+
+/// Picks one of: Serif, Sans serif, Script, Decorative, Blackletter, Symbols.
+/// Order of trust: the font's own name, then clear signs in the letter shapes
+/// (leaning, broken or tapered strokes), then PANOSE, the OS/2 family class,
+/// and finally the measured serifs.
 pub fn classify(family: &str, full_name: &str, family_class: Option<i16>, panose: Option<[u8; 10]>, from_shape: Option<&str>) -> String {
     let n = format!("{family} {full_name}").to_lowercase();
     let has = |words: &[&str]| words.iter().any(|w| n.contains(w));
 
-    if has(&["fraktur", "blackletter", "black letter", "textura", "gothic text", "old english", "rotunda", "schwabacher"]) {
+    if has(&["fraktur", "blackletter", "black letter", "textura", "gothic text", "old english", "rotunda", "schwabacher"])
+        || (n.contains("goth") && !n.contains("gothic"))
+    {
         return "Blackletter".into();
     }
-    if has(&["handwrit", "hand written", "marker", "brush"]) {
-        return "Handwritten".into();
-    }
-    if has(&["script", "calligraph", "signature"]) {
+    if has(&["handwrit", "hand written", "marker", "brush", "script", "calligraph", "signature"]) {
         return "Script".into();
     }
     if has(&["symbol", "icon", "dingbat", "ornament", "emoji"]) {
@@ -175,38 +207,43 @@ pub fn classify(family: &str, full_name: &str, family_class: Option<i16>, panose
         return "Serif".into();
     }
 
+    // Shapes that only scripts and blackletter have.
+    if let Some(s @ ("Script" | "Blackletter")) = from_shape {
+        return s.into();
+    }
+    // A script claim in the file is trusted unless the letters plainly have serifs.
+    if panose.map(|p| p[0] == 3).unwrap_or(false) && from_shape != Some("Serif") {
+        return "Script".into();
+    }
+    if from_shape == Some("Decorative") {
+        return "Decorative".into();
+    }
+
+    if let Some(p) = panose {
+        match p[0] {
+            4 => return "Decorative".into(),
+            5 => return "Symbols".into(),
+            // Text faces: the serif style is the most reliable field fonts carry.
+            2 if (2..=10).contains(&p[1]) => return "Serif".into(),
+            2 if (11..=15).contains(&p[1]) => return "Sans serif".into(),
+            _ => {}
+        }
+    }
+
     if let Some(c) = family_class {
         match (c >> 8) as u8 {
             1..=5 | 7 => return "Serif".into(),
             8 => return "Sans serif".into(),
             9 => return "Decorative".into(),
-            10 => return "Script".into(),
+            10 if from_shape != Some("Serif") => return "Script".into(),
             12 => return "Symbols".into(),
             _ => {}
         }
     }
 
-    if let Some(p) = panose {
-        match p[0] {
-            3 => return "Script".into(),
-            4 => return "Decorative".into(),
-            5 => return "Symbols".into(),
-            _ => {}
-        }
-    }
-
-    // Most fonts leave the fields above empty, so the letter shapes decide.
     if let Some(style) = from_shape {
         return style.into();
     }
-
-    if let Some(p) = panose {
-        if p[0] == 2 && p[1] >= 2 {
-            // bSerifStyle 11–15 are sans styles.
-            return if (11..=15).contains(&p[1]) { "Sans serif".into() } else { "Serif".into() };
-        }
-    }
-
     "Sans serif".into()
 }
 
@@ -242,8 +279,22 @@ mod tests {
         assert_eq!(classify("Inter", "Inter", Some(0x0800), None, None), "Sans serif");
         assert_eq!(classify("Foo", "Foo", Some(0), Some([3, 0, 0, 0, 0, 0, 0, 0, 0, 0]), None), "Script");
         assert_eq!(classify("Foo", "Foo", None, Some([2, 11, 0, 0, 0, 0, 0, 0, 0, 0]), None), "Sans serif");
+        // Century Gothic says "transitional serif" in OS/2 but PANOSE says sans.
+        assert_eq!(classify("Century Gothic", "Century Gothic", Some(0x0204), Some([2, 11, 5, 2, 2, 2, 2, 2, 2, 4]), Some("Sans serif")), "Sans serif");
+        assert_eq!(classify("CCGothChic", "CCGothChic Black", None, None, Some("Sans serif")), "Blackletter");
+        assert_eq!(classify("Unifraktur", "Unifraktur", None, Some([2, 11, 6, 3, 5, 3, 2, 2, 2, 4]), Some("Blackletter")), "Blackletter");
         assert_eq!(classify("Foo", "Foo", None, None, None), "Sans serif");
         assert_eq!(classify("Foo", "Foo", Some(0), Some([0; 10]), Some("Serif")), "Serif");
+    }
+
+    #[test]
+    fn weight_from_style_name() {
+        assert_eq!(refine_weight(400, "Black"), 900);
+        assert_eq!(refine_weight(400, "Light"), 300);
+        assert_eq!(refine_weight(400, "Bold Italic"), 700);
+        assert_eq!(refine_weight(400, "SemiBold"), 600);
+        assert_eq!(refine_weight(400, "Regular Italic"), 400);
+        assert_eq!(refine_weight(300, "Book"), 300);
     }
 
     #[test]

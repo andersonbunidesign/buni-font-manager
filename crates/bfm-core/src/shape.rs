@@ -162,24 +162,31 @@ pub fn analyse(face: &Face) -> Shape {
 }
 
 /// Style from the letter shapes. `None` when the shapes don't settle it.
+/// Scripts and handwriting are one style ("Script").
 pub fn classify_shape(s: &Shape, italic: bool) -> Option<&'static str> {
     // Scripts and handwriting lean even in their "regular" style.
-    if !italic && s.slant >= 0.15 {
-        return Some(if s.overhang >= 0.1 { "Script" } else { "Handwritten" });
+    if !italic && s.slant >= 0.12 {
+        return Some("Script");
     }
     // For all-caps fonts the lowercase is a capital, so judge by the I.
     let main = if s.caps_only { s.i_ratio } else { s.n_ratio };
     let main = main?;
+    let min_il = s.i_ratio.unwrap_or(1.0).min(s.l_ratio.unwrap_or(1.0));
+    // Broken, pointed feet: blackletter (rounded sans terminals stay above 0.8).
+    if !italic && !s.caps_only && main < 0.8 && min_il < 0.8 {
+        return Some("Blackletter");
+    }
+    // A capital I that tapers to a point at the foot: display lettering.
+    if !italic && !s.caps_only && s.i_ratio.map(|r| r < 0.7).unwrap_or(false) {
+        return Some("Decorative");
+    }
     if main >= 1.3 && (s.l_ratio.unwrap_or(main) >= 1.2 || s.i_ratio.unwrap_or(main) >= 1.2) {
         return Some("Serif");
     }
-    if (0.95..=1.15).contains(&main) {
+    if (0.75..=1.15).contains(&main) {
         return Some("Sans serif");
     }
-    if !italic && main < 0.85 && s.l_ratio.map(|r| r < 1.0).unwrap_or(false) {
-        return Some("Blackletter");
-    }
-    if !italic && main < 0.9 {
+    if !italic && main < 0.75 {
         return Some("Decorative");
     }
     None

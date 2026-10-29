@@ -217,6 +217,115 @@ async fn import_paths(data: State<'_, AppData>, paths: Vec<String>, collection: 
     Ok(ImportResult { report, library: lib.clone() })
 }
 
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DesignFileFonts {
+    file: String,
+    name: String,
+    fonts: Vec<bfm_core::designfile::UsedFont>,
+    error: Option<String>,
+}
+
+/// Lists the fonts used by dropped Illustrator files.
+#[tauri::command]
+async fn inspect_design_files(paths: Vec<String>) -> Vec<DesignFileFonts> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .into_iter()
+            .map(|p| {
+                let name = PathBuf::from(&p).file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_else(|| p.clone());
+                match std::fs::read(&p) {
+                    Ok(d) => DesignFileFonts { fonts: bfm_core::designfile::used_fonts(&d), file: p, name, error: None },
+                    Err(e) => DesignFileFonts { file: p, name, fonts: vec![], error: Some(format!("Could not read the file: {e}")) },
+                }
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtworkInfo {
+    pages: usize,
+    failed: Vec<String>,
+    outlined: Vec<String>,
+}
+
+/// A system font for the grey labels: Segoe UI on Windows.
+fn label_fonts() -> Option<(Vec<u8>, Vec<u8>)> {
+    let mut regular = Vec::new();
+    let mut bold = Vec::new();
+    if let Some(w) = std::env::var_os("WINDIR") {
+        let d = PathBuf::from(w).join("Fonts");
+        regular.extend([d.join("segoeui.ttf"), d.join("arial.ttf")]);
+        bold.extend([d.join("seguisb.ttf"), d.join("segoeuib.ttf"), d.join("arialbd.ttf")]);
+    }
+    for d in ["/usr/share/fonts/truetype/dejavu", "/System/Library/Fonts/Supplemental"] {
+        regular.push(PathBuf::from(d).join("DejaVuSans.ttf"));
+        regular.push(PathBuf::from(d).join("Arial.ttf"));
+        bold.push(PathBuf::from(d).join("DejaVuSans-Bold.ttf"));
+        bold.push(PathBuf::from(d).join("Arial Bold.ttf"));
+    }
+    let r = regular.iter().find_map(|p| std::fs::read(p).ok())?;
+    let b = bold.iter().find_map(|p| std::fs::read(p).ok()).unwrap_or_else(|| r.clone());
+    Some((r, b))
+}
+
+/// Generate Artwork: writes the collection's specimen PDF to `path`.
+#[tauri::command]
+async fn generate_artwork(app: AppHandle, collection: String, path: String) -> Result<ArtworkInfo, String> {
+    let data = app.state::<AppData>();
+    let spec = {
+        let lib = data.lib.lock().unwrap();
+        let ext = data.external.lock().unwrap();
+        let c = lib.collections.iter().find(|c| c.name == collection).ok_or("This collection no longer exists")?;
+        let mut fonts: Vec<FontRecord> = c
+            .font_ids
+            .iter()
+            .filter_map(|id| lib.font(id).cloned().or_else(|| ext.as_ref().and_then(|e| e.iter().find(|f| &f.id == id).cloned())))
+            .collect();
+        let fav = |f: &FontRecord| c.favourites.contains(&f.id);
+        fonts.sort_by(|a, b| {
+            fav(b)
+                .cmp(&fav(a))
+                .then(a.family.to_lowercase().cmp(&b.family.to_lowercase()))
+                .then(a.italic.cmp(&b.italic))
+                .then(a.weight.cmp(&b.weight))
+                .then(a.style.cmp(&b.style))
+        });
+        let rows = fonts
+            .iter()
+            .map(|f| bfm_core::artwork::ArtworkRow {
+                path: f.path.clone(),
+                index: f.index,
+                name: if f.full_name.is_empty() { format!("{} {}", f.family, f.style) } else { f.full_name.clone() },
+                favourite: fav(f),
+                no_embedding: f.no_embedding,
+            })
+            .collect::<Vec<_>>();
+        if rows.is_empty() {
+            return Err("This collection is empty".into());
+        }
+        let (label_font, label_bold) = label_fonts().ok_or("No system font was found for the labels")?;
+        bfm_core::artwork::ArtworkSpec {
+            title: c.name.clone(),
+            sample: c.sample_text.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| c.name.clone()),
+            rows,
+            label_font,
+            label_bold,
+        }
+    };
+    tauri::async_runtime::spawn_blocking(move || {
+        let r = bfm_core::artwork::render_pdf(&spec)?;
+        std::fs::write(&path, &r.pdf).map_err(|e| format!("Could not save the PDF: {e}"))?;
+        Ok(ArtworkInfo { pages: r.pages, failed: r.failed, outlined: r.outlined })
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Saves edits made in the interface (collections, favourites, tags, sample texts).
 /// Font files and activation are not changed here.
 #[tauri::command]
@@ -323,7 +432,9 @@ pub fn run() {
             get_external,
             rescan_external,
             get_settings,
-            set_adobe_dir
+            set_adobe_dir,
+            inspect_design_files,
+            generate_artwork
         ])
         .setup(move |app| {
             // List system and Adobe fonts in the background; the interface updates when done.

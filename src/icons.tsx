@@ -85,7 +85,7 @@ export const IconFolder = (p: P) => (
 );
 export const IconArrowIn = (p: P) => (
   <S {...p}>
-    <path d="M12 4v10M8 10l4 4 4-4M4 16v4h16v-4" />
+    <path d="M4 12h10M10 8l4 4-4 4M16 4h4v16h-4" />
   </S>
 );
 export const IconCheckCircle = (p: P) => (
@@ -114,6 +114,35 @@ export const IconClock = (p: P) => (
 export const IconX = (p: P) => (
   <S {...p}>
     <path d="M7 7l10 10M17 7L7 17" />
+  </S>
+);
+
+export const IconSwap = (p: P) => (
+  <S {...p}>
+    <path d="M7 7h11l-3-3M17 17H6l3 3" />
+  </S>
+);
+export const IconReset = (p: P) => (
+  <S {...p}>
+    <path d="M4.5 12a7.5 7.5 0 1 0 2.2-5.3L4.5 9" />
+    <path d="M4.5 4.5V9H9" />
+  </S>
+);
+export const IconWidth = (p: P) => (
+  <S {...p}>
+    <path d="M4 5v14M20 5v14M7 12h10M10 9l-3 3 3 3M14 9l3 3-3 3" />
+  </S>
+);
+export const IconCopy = (p: P) => (
+  <S {...p}>
+    <rect x="8" y="8" width="12" height="12" rx="2" />
+    <path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4h-9A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8" />
+  </S>
+);
+export const IconArtwork = (p: P) => (
+  <S {...p}>
+    <rect x="5" y="3" width="14" height="18" rx="1.5" />
+    <path d="M8 8h8M8 12h8M8 16h5" />
   </S>
 );
 

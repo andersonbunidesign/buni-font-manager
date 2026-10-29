@@ -2,22 +2,30 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import { convertFileSrc } from "@tauri-apps/api/core";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { listen } from "@tauri-apps/api/event";
-import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import { open as openDialog, save as saveDialog } from "@tauri-apps/plugin-dialog";
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { enable as enableAutostart, disable as disableAutostart, isEnabled as autostartEnabled } from "@tauri-apps/plugin-autostart";
 import { api } from "./api";
-import type { ExternalMeta, FontRecord, ImportReport, Library, Settings } from "./types";
+import type { DesignFileFonts, ExternalMeta, FontRecord, ImportReport, Library, Settings } from "./types";
 import {
-  ALL, buildFamilies, cloneLibrary, filterGroups, fontFaceName, matchesFilters, tagList, weightName,
+  ALL, buildFamilies, cloneLibrary, filterGroups, fontFaceName, matchesFilters, previewFont, tagList, weightName,
   type Family, type Filters,
 } from "./model";
 import {
   IconAlignCenter, IconAlignLeft, IconArrowIn, IconCheckCircle, IconClock, IconX, IconDots, IconFocus, IconFolder, IconGear, IconGrid, IconList, IconMinusCircle,
-  IconMoon, IconPlus, IconSearch, IconSun, IconTrash, IconUpload, Logo, Star,
+  IconMoon, IconPlus, IconSearch, IconSun, IconTrash, IconUpload, Logo, Star, IconSwap, IconReset, IconWidth, IconCopy, IconArtwork,
 } from "./icons";
+import { ColorPicker, Slider, normHex } from "./controls";
+
+/** Sets the preview size without re-rendering the cards. */
+function setPvSize(v: number) {
+  document.documentElement.style.setProperty("--pv-size", `${v}px`);
+}
 
 type UndoEntry = { kind: "meta"; snapshot: Library } | { kind: "delete"; snapshot: Library; removed: FontRecord[] };
-type Modal = null | "import" | "report" | "settings" | "adobe";
+type Modal = null | "import" | "report" | "settings" | "adobe" | "design";
+
+const isDesignFile = (p: string) => /\.(ai|eps)$/i.test(p);
 
 const ADOBE = "Adobe Fonts";
 
@@ -80,6 +88,12 @@ export default function App() {
   const [dark, setDark] = usePref("dark", false);
   const [view, setView] = usePref<"grid" | "list">("view", "grid");
   const [size, setSize] = usePref("size", 44);
+  const [sameWidth, setSameWidth] = usePref("sameWidth", false);
+  const [colors, setColors] = usePref<{ on: boolean; text: string; bg: string }>("focusColors", { on: false, text: "#343434", bg: "#EDEBE8" });
+  const [recentColors, setRecentColors] = usePref<string[]>("recentColors", []);
+  const [picker, setPicker] = useState<null | "text" | "bg">(null);
+  const [design, setDesign] = useState<{ files: DesignFileFonts[]; activated: number } | null>(null);
+  const [artBusy, setArtBusy] = useState(false);
   const [pad, setPad] = usePref("pad", 1);
   const [caps, setCaps] = usePref("caps", false);
   const [allText, setAllText] = usePref("allText", "Aa Bb Cc");
@@ -228,6 +242,8 @@ export default function App() {
     return () => unlisten?.();
   }, []);
 
+  useEffect(() => setPvSize(size), [size]);
+
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
   }, [dark]);
@@ -236,6 +252,15 @@ export default function App() {
   const openImport = useCallback(
     (paths: string[]) => {
       if (!paths.length) return;
+      const designs = paths.filter(isDesignFile);
+      if (designs.length && designs.length < paths.length) {
+        say("Drop fonts or Illustrator files, not both at once. Nothing was imported.");
+        return;
+      }
+      if (designs.length) {
+        inspectRef.current(designs);
+        return;
+      }
       setPending(paths);
       setImportName(coll !== ALL ? coll : "");
       setCustomOrigin("");
@@ -260,6 +285,51 @@ export default function App() {
       .catch(() => {});
     return () => unlisten?.();
   }, [openImport]);
+
+  // ---------- Illustrator files: which fonts they use ----------
+  const inspectRef = useRef<(paths: string[]) => void>(() => {});
+  /** Finds the font a file asks for: by PostScript name, then by family and style. */
+  function matchUsed(u: { postscript: string; family: string | null; style: string | null }): FontRecord | undefined {
+    const ps = u.postscript.toLowerCase().replace(/\s+/g, "");
+    const byPs = allFonts.find((f) => f.postscriptName.toLowerCase().replace(/\s+/g, "") === ps);
+    if (byPs) return byPs;
+    if (u.family) {
+      const fam = u.family.toLowerCase();
+      const st = (u.style ?? "Regular").toLowerCase();
+      return allFonts.find((f) => f.family.toLowerCase() === fam && f.style.toLowerCase() === st);
+    }
+    return undefined;
+  }
+  inspectRef.current = async (paths: string[]) => {
+    say(paths.length === 1 ? "Reading the Illustrator file…" : `Reading ${paths.length} Illustrator files…`);
+    const files = await run(() => api.inspectDesignFiles(paths));
+    if (!files) return;
+    // Turn on the fonts that are in the library but switched off.
+    const off = new Set<string>();
+    for (const f of files) for (const u of f.fonts) {
+      const m = matchUsed(u);
+      if (m && !m.external && !m.active) off.add(m.id);
+    }
+    if (off.size) await setActive([...off], true);
+    setDesign({ files, activated: off.size });
+    setModal("design");
+  };
+
+  async function generateArtwork() {
+    if (!inColl || artBusy) return;
+    const path = await saveDialog({ defaultPath: `${coll.replace(/[\\/:*?"<>|]/g, "-")}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    if (!path) return;
+    setArtBusy(true);
+    say("Generating the artwork…");
+    const res = await run(() => api.generateArtwork(coll, path));
+    setArtBusy(false);
+    if (!res) return;
+    const notes = [];
+    if (res.outlined.length) notes.push(`${plural(res.outlined.length)} drawn as outlines (their licence doesn't allow embedding)`);
+    if (res.failed.length) notes.push(`${plural(res.failed.length)} couldn't be read`);
+    say(`Artwork saved: ${res.pages === 1 ? "1 page" : `${res.pages} pages`}${notes.length ? ". " + notes.join(", ") : ""}`);
+    openPath(path).catch(() => {});
+  }
 
   async function pickFiles() {
     const picked = await openDialog({ multiple: true, filters: [{ name: "Fonts and zips", extensions: ["zip", "otf", "ttf"] }] });
@@ -323,7 +393,7 @@ export default function App() {
 
   const text = inColl ? collection!.sampleText ?? collection!.name : allText;
   const previewText = text.length > 50 ? text.slice(0, 50).trimEnd() + "…" : text;
-  const cellH = Math.round(size * 1.3 + (size * 0.4 + 60) * pad);
+  const cellH = `calc(var(--pv-size) * ${sameWidth ? 1.6 : 1.3} + (var(--pv-size) * 0.4 + 60px) * ${pad})`;
   const padV = Math.round(22 * pad);
   const padH = Math.round(24 * pad);
   // The left inset stays put; the Padding slider only changes the space above, below and to the right.
@@ -331,25 +401,46 @@ export default function App() {
   const padB = Math.round(14 * pad);
   const gap = Math.max(4, Math.round(14 * pad));
 
-  // Measure the widest preview so cards fit the text instead of leaving empty space.
+  // Every preview is measured once at 100px (widths scale with the size), so moving
+  // the Size slider never re-measures. Measured again only when text or fonts change.
   const measureRef = useRef<HTMLDivElement>(null);
-  const [textW, setTextW] = useState(0);
+  const [widths, setWidths] = useState<Map<string, number>>(new Map());
+  const measureKey = `${previewText}|${caps}|${shown.map((f) => previewFont(f, filters).id).join(",")}`;
   const measure = useCallback(() => {
     const el = measureRef.current;
     if (!el) return;
-    let max = 0;
-    el.querySelectorAll("span").forEach((sp) => (max = Math.max(max, sp.getBoundingClientRect().width)));
-    setTextW(Math.ceil(max));
+    const m = new Map<string, number>();
+    el.querySelectorAll<HTMLElement>("span[data-k]").forEach((sp) => m.set(sp.dataset.k!, sp.getBoundingClientRect().width));
+    setWidths(m);
   }, []);
-  useLayoutEffect(measure);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useLayoutEffect(measure, [measureKey]);
   useEffect(() => {
     const fonts = document.fonts;
-    fonts.addEventListener("loadingdone", measure);
+    let t: number | undefined;
+    const later = () => {
+      window.clearTimeout(t);
+      t = window.setTimeout(measure, 150);
+    };
+    fonts.addEventListener("loadingdone", later);
     fonts.ready.then(measure).catch(() => {});
-    return () => fonts.removeEventListener("loadingdone", measure);
+    return () => fonts.removeEventListener("loadingdone", later);
   }, [measure]);
-  // Cards are at least as wide as the widest preview, and stretch to fill the row.
-  const cellW = focus ? Math.max(140, textW + padL + 52 + 4) : Math.max(230, textW + padL + padH + 4);
+  // Card width follows the typical preview (the median), so one very wide font doesn't
+  // stretch every card; wider previews end in "…". Cards then stretch to fill the row.
+  const medianW = useMemo(() => {
+    const v = shown.map((f) => widths.get(f.key)).filter((x): x is number => !!x).sort((a, b) => a - b);
+    return v.length ? v[Math.floor(v.length / 2)] : 0;
+  }, [shown, widths]);
+  const typicalW = Math.ceil((medianW * size) / 100);
+  const maxCell = Math.max(480, size * 4);
+  const cellW = Math.min(maxCell, focus ? Math.max(140, typicalW + padL + 52 + 4) : Math.max(230, typicalW + padL + padH + 4));
+  /** In same-width mode every preview is scaled to the typical width (capped so condensed fonts don't explode). */
+  const scaleOf = (fam: Family) => {
+    if (!sameWidth) return 1;
+    const w = widths.get(fam.key);
+    return w && medianW ? Math.min(2.2, medianW / w) : 1;
+  };
 
   const faces = useMemo(
     () =>
@@ -628,7 +719,7 @@ export default function App() {
         setSel(shown.map((f) => f.key));
       } else if (e.key === "Escape") {
         clearSel();
-        setModal((m) => (m === "import" || m === "settings" || m === "report" || m === "adobe" ? null : m));
+        setModal((m) => (m === "import" || m === "settings" || m === "report" || m === "adobe" || m === "design" ? null : m));
       } else if ((e.key === "Delete" || e.key === "Backspace") && !modal && inColl && selected.length) {
         e.preventDefault();
         removeFromCollection(selected);
@@ -655,9 +746,9 @@ export default function App() {
   }
 
   // ---------- render pieces ----------
-  const previewStyle = (f: FontRecord): React.CSSProperties => ({
+  const previewStyle = (f: FontRecord, scale = 1): React.CSSProperties => ({
     fontFamily: `"${fontFaceName(f.id)}", "Segoe UI", sans-serif`,
-    fontSize: size,
+    fontSize: scale === 1 ? "var(--pv-size)" : `calc(var(--pv-size) * ${scale.toFixed(3)})`,
     textAlign: align,
     textTransform: caps ? "uppercase" : "none",
   });
@@ -694,7 +785,7 @@ export default function App() {
       <style>{faces}</style>
       <div ref={measureRef} aria-hidden="true" style={{ position: "absolute", left: -100000, top: 0, visibility: "hidden", whiteSpace: "nowrap" }}>
         {shown.map((fam) => (
-          <span key={fam.key} style={{ ...previewStyle(fam.rep), display: "inline-block", lineHeight: 1.15 }}>
+          <span key={fam.key} data-k={fam.key} style={{ ...previewStyle(previewFont(fam, filters)), fontSize: 100, textAlign: "left", display: "inline-block", lineHeight: 1.15 }}>
             {previewText}
           </span>
         ))}
@@ -707,13 +798,14 @@ export default function App() {
         </div>
         <input className="sample" type="text" aria-label="Sample text" placeholder="Type your sample text" value={text} onChange={(e) => onText(e.target.value)} />
         <div className="sliders">
-          <label htmlFor="size">Size {size}</label>
-          <input id="size" type="range" min={20} max={240} value={size} onChange={(e) => setSize(Number(e.target.value))} />
-          <label htmlFor="pad">Padding ×{pad.toFixed(1)}</label>
-          <input id="pad" type="range" min={0.2} max={1.6} step={0.1} value={pad} onChange={(e) => setPad(Number(e.target.value))} />
+          <Slider id="size" label={(v) => `Size ${v}`} min={20} max={240} value={size} onLive={setPvSize} onCommit={setSize} />
+          <Slider id="pad" label={(v) => `Padding ×${v.toFixed(1)}`} min={0.2} max={1.6} step={0.1} value={pad} onCommit={setPad} />
         </div>
         <button type="button" className="caps" aria-pressed={caps} aria-label="Show previews in capitals" title="All caps" onClick={() => setCaps(!caps)}>
           {caps ? "AA" : "Aa"}
+        </button>
+        <button type="button" className="caps" aria-pressed={sameWidth} aria-label="Same width: scale every preview to the same width" title="Same width" onClick={() => setSameWidth(!sameWidth)}>
+          <IconWidth />
         </button>
         <div className="seg">
           <button type="button" aria-label="Align previews left" title="Align left" aria-pressed={align === "left"} onClick={() => setAlign("left")}>
@@ -723,7 +815,51 @@ export default function App() {
             <IconAlignCenter />
           </button>
         </div>
-        <div className="seg">
+        {focus && (
+          <div className="colors">
+            {(["text", "bg"] as const).map((k) => (
+              <button
+                key={k}
+                type="button"
+                data-swatch
+                className="color-btn"
+                aria-expanded={picker === k}
+                aria-label={k === "text" ? "Text colour" : "Background colour"}
+                title={k === "text" ? "Text colour" : "Background colour"}
+                onClick={() => setPicker(picker === k ? null : k)}
+              >
+                <span className="swatch" style={{ background: colors.on ? colors[k] : k === "text" ? "var(--ink)" : "var(--bg)" }} />
+                <small>{k === "text" ? "Aa" : "Bg"}</small>
+              </button>
+            ))}
+            <button type="button" className="icon-round" aria-label="Swap text and background colours" title="Swap" onClick={() => {
+              const c = colors.on ? colors : themeColors();
+              setColors({ on: true, text: c.bg, bg: c.text });
+            }}>
+              <IconSwap size={16} />
+            </button>
+            {colors.on && (
+              <button type="button" className="icon-round" aria-label="Back to the default colours" title="Default colours" onClick={() => { setColors({ ...colors, on: false }); setPicker(null); }}>
+                <IconReset size={16} />
+              </button>
+            )}
+            {picker && (
+              <ColorPicker
+                label={picker === "text" ? "Text colour" : "Background colour"}
+                value={(colors.on ? colors : themeColors())[picker]}
+                recent={recentColors}
+                onChange={(hex) => {
+                  const base = colors.on ? colors : themeColors();
+                  setColors({ ...base, on: true, [picker]: hex });
+                }}
+                onPick={(hex) => setRecentColors([hex, ...recentColors.filter((c) => c !== hex)].slice(0, 10))}
+                onReset={() => { setColors({ ...colors, on: false }); setPicker(null); }}
+                onClose={() => setPicker(null)}
+              />
+            )}
+          </div>
+        )}
+        <div className="seg" hidden={focus}>
           <button type="button" aria-label="Grid view" aria-pressed={view === "grid"} onClick={() => setView("grid")}>
             <IconGrid />
           </button>
@@ -850,7 +986,11 @@ export default function App() {
           </nav>
         )}
 
-        <main className="main" onClick={onMainClick}>
+        <main
+          className={`main${focus && colors.on ? " custom" : ""}`}
+          style={focus && colors.on ? ({ "--focus-bg": colors.bg, "--focus-ink": colors.text } as React.CSSProperties) : undefined}
+          onClick={onMainClick}
+        >
           {!focus && (
             <div className="titlebar">
               <div>
@@ -869,9 +1009,14 @@ export default function App() {
                 </div>
               </div>
               {inColl && (
-                <button type="button" className="round" aria-label="Add recent Adobe Fonts to this collection" title="Add recent Adobe Fonts" onClick={() => setModal("adobe")}>
-                  <IconClock />
-                </button>
+                <div style={{ display: "flex", gap: 8, alignSelf: "flex-end" }}>
+                  <button type="button" className="round" aria-label="Add recent Adobe Fonts to this collection" title="Add recent Adobe Fonts" onClick={() => setModal("adobe")}>
+                    <IconClock />
+                  </button>
+                  <button type="button" className="round" aria-label="Generate Artwork (PDF)" title="Generate Artwork (PDF)" disabled={artBusy || !collection?.fontIds.length} onClick={generateArtwork}>
+                    <IconArtwork />
+                  </button>
+                </div>
               )}
             </div>
           )}
@@ -919,7 +1064,7 @@ export default function App() {
                       <div className="fsub">{famSub(fam)}</div>
                     </div>
                     <button type="button" className="preview" aria-label={`Select ${fam.family}`} style={{ padding: "6px 0", flex: "1 1 auto", minWidth: 0 }} onClick={(e) => pick(fam, e)}>
-                      <span style={{ ...previewStyle(fam.rep), lineHeight: 1.2 }}>{previewText}</span>
+                      <span className="pv" style={{ ...previewStyle(previewFont(fam, filters), scaleOf(fam)), lineHeight: 1.2 }}>{previewText}</span>
                     </button>
                     {inColl && (
                       <button type="button" className="icon44" aria-label={`Favourite ${fam.family}`} aria-pressed={isFav(fam)} onClick={() => toggleFav(fam)}>
@@ -945,7 +1090,7 @@ export default function App() {
                       style={{ paddingTop: padV, paddingBottom: focus ? padV : padB, paddingLeft: padL, paddingRight: focus ? 52 : padH, minHeight: cellH }}
                       onClick={(e) => pick(fam, e)}
                     >
-                      <span style={previewStyle(fam.rep)}>{previewText}</span>
+                      <span className="pv" style={previewStyle(previewFont(fam, filters), scaleOf(fam))}>{previewText}</span>
                     </button>
                     {focus ? (
                       inColl ? (
@@ -994,7 +1139,7 @@ export default function App() {
             </div>
           )}
 
-          {!focus && families.length > 0 && <div className="dropzone">Drop zip, OTF or TTF files anywhere in the window to import them</div>}
+          {!focus && families.length > 0 && <div className="dropzone">Drop zip, OTF or TTF files anywhere in the window to import them, or an Illustrator file to find and turn on its fonts</div>}
         </main>
 
         {!focus && (
@@ -1254,6 +1399,79 @@ export default function App() {
         </div>
       )}
 
+      {modal === "design" && design && (
+        <div className="overlay">
+          <div className="dialog wide" role="dialog" aria-label="Fonts in the Illustrator files">
+            <div>
+              <h2>{design.files.length === 1 ? `Fonts in ${design.files[0].name}` : `Fonts in ${design.files.length} files`}</h2>
+              <p className="muted" style={{ marginTop: 6 }}>
+                {design.activated > 0 ? `${plural(design.activated)} from your library turned on. ` : ""}
+                Fonts marked missing aren't on this computer.
+              </p>
+            </div>
+            <div className="design-list">
+              {design.files.map((file) => (
+                <section key={file.file}>
+                  {design.files.length > 1 && <h3>{file.name}</h3>}
+                  {file.error && <p className="errline">{file.error}</p>}
+                  {!file.error && file.fonts.length === 0 && <p className="muted">No fonts were found in this file. It may use only outlined text.</p>}
+                  {file.fonts.map((u) => {
+                    const m = matchUsed(u);
+                    const label = m ? `${m.family} ${m.style}` : u.family ? `${u.family} ${u.style ?? ""}`.trim() : u.postscript;
+                    const status = !m ? "Missing" : m.external ? (m.origin === ADOBE ? "Adobe Fonts" : "Installed in Windows") : m.active ? "Active" : "Inactive";
+                    return (
+                      <div className="design-row" key={u.postscript}>
+                        <span className={`status ${!m ? "missing" : m.active || m.external ? "ok" : "off"}`}>{status}</span>
+                        <span className="design-name" title={u.postscript}>{label}</span>
+                        {m && !m.external && !m.active && (
+                          <button type="button" className="btn" onClick={() => setActive([m.id], true)}>Activate</button>
+                        )}
+                        <button
+                          type="button"
+                          className="icon-round"
+                          aria-label={`Copy the name ${label}`}
+                          title="Copy the name"
+                          onClick={() => navigator.clipboard.writeText(label).then(() => say(`Copied: ${label}`)).catch(() => say("Couldn't copy"))}
+                        >
+                          <IconCopy size={15} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </section>
+              ))}
+            </div>
+            <div className="dialog-actions">
+              {(() => {
+                const ids = new Set<string>();
+                for (const f of design.files) for (const u of f.fonts) {
+                  const m = matchUsed(u);
+                  if (m) famByKey.get(`${m.origin}|${m.family}`)?.ids.forEach((id) => ids.add(id));
+                }
+                if (!ids.size) return null;
+                let name = design.files.length === 1 ? design.files[0].name : "Illustrator fonts";
+                for (let n = 2; collNames.includes(name); n++) name = `${design.files.length === 1 ? design.files[0].name : "Illustrator fonts"} ${n}`;
+                return (
+                  <button
+                    type="button"
+                    className="btn"
+                    onClick={() => {
+                      commit((l) => l.collections.push({ name, fontIds: [...ids], favourites: [], sampleText: null }), `Created the collection ${name}`);
+                      setModal(null);
+                      setColl(name);
+                      setSel([]);
+                    }}
+                  >
+                    <IconPlus size={15} /> Create collection “{name}”
+                  </button>
+                );
+              })()}
+              <button type="button" className="btn primary" onClick={() => setModal(null)}>Done</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {modal === "adobe" && (
         <div className="overlay">
           <div className="dialog" role="dialog" aria-label="Add recent Adobe Fonts">
@@ -1283,7 +1501,7 @@ export default function App() {
 
       {fileDrag && (
         <div className="drop-overlay">
-          <div>Drop to import fonts</div>
+          <div>Drop fonts to import them, or Illustrator files to see their fonts</div>
         </div>
       )}
       {ghost && (
@@ -1293,6 +1511,13 @@ export default function App() {
       )}
     </div>
   );
+}
+
+/** The theme's own text and background colours, as a starting point for custom ones. */
+function themeColors() {
+  const cs = getComputedStyle(document.documentElement);
+  const get = (v: string, d: string) => normHex(cs.getPropertyValue(v)) ?? d;
+  return { on: true, text: get("--ink", "#343434"), bg: get("--bg", "#EDEBE8") };
 }
 
 function describePending(paths: string[]): string {

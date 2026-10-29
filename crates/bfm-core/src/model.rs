@@ -116,7 +116,7 @@ pub struct Library {
 }
 
 /// Bump when the style detection improves, so existing libraries are re-read once.
-pub const DETECTION_VERSION: u32 = 2;
+pub const DETECTION_VERSION: u32 = 3;
 
 fn version_one() -> u32 {
     1

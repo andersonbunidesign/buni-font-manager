@@ -14,6 +14,9 @@ export interface Family {
   active: boolean;
   addedAt: number;
   licence: string | null;
+  /** Style and spacing of the family as a whole (most common among its upright styles). */
+  classification: string;
+  spacing: string;
 }
 
 export interface TagInfo {
@@ -23,7 +26,7 @@ export interface TagInfo {
   source: string;
 }
 
-export const STYLE_CHIPS = ["Serif", "Sans serif", "Script", "Decorative", "Handwritten", "Blackletter", "Symbols", "Duo"];
+export const STYLE_CHIPS = ["Serif", "Sans serif", "Script", "Decorative", "Blackletter", "Symbols", "Duo"];
 export const SPACING_CHIPS = ["Normal", "Monospace", "Condensed", "Expanded"];
 export const WEIGHT_CHIPS = ["Thin", "Light", "Regular", "Medium", "Bold", "Black"];
 export const LANG_CHIPS = ["Swedish (å ä ö)", "Portuguese (ã ç)", "Cyrillic", "Greek"];
@@ -66,6 +69,13 @@ export function buildFamilies(fonts: FontRecord[]): Family[] {
     const upright = list.filter((f) => !f.italic);
     const pool = upright.length ? upright : list;
     const rep = pool.reduce((best, f) => (Math.abs(f.weight - 400) < Math.abs(best.weight - 400) ? f : best), pool[0]);
+    const vote = (pick: (f: FontRecord) => string) => {
+      const n = new Map<string, number>();
+      for (const f of pool) n.set(pick(f), (n.get(pick(f)) ?? 0) + 1);
+      let best = pick(rep);
+      for (const [k, c] of n) if (c > (n.get(best) ?? 0)) best = k;
+      return best;
+    };
     out.push({
       key,
       family: list[0].family,
@@ -76,6 +86,8 @@ export function buildFamilies(fonts: FontRecord[]): Family[] {
       active: list.some((f) => f.active),
       addedAt: Math.max(...list.map((f) => f.addedAt)),
       licence: list.find((f) => f.licence)?.licence ?? null,
+      classification: vote((f) => (f.classification === "Handwritten" ? "Script" : f.classification)),
+      spacing: vote((f) => f.spacing),
     });
   }
   return out;
@@ -95,7 +107,7 @@ export function customTags(fam: Family): string[] {
 
 /** Tags read from the file or added by the import. */
 export function fixedTags(fam: Family): string[] {
-  const t = [fam.rep.classification, fam.rep.spacing];
+  const t = [fam.classification, fam.spacing];
   if (fam.fonts.some((f) => f.duo)) t.push("Duo");
   if (fam.fonts.some((f) => f.variable)) t.push("Variable");
   if (fam.fonts.some((f) => f.italic)) t.push("Italic");
@@ -147,9 +159,9 @@ function chipMatches(group: string, chip: string, fam: Family): boolean {
     case "origin":
       return fam.origin === chip;
     case "style":
-      return chip === "Duo" ? fam.fonts.some((f) => f.duo) : fam.rep.classification === chip;
+      return chip === "Duo" ? fam.fonts.some((f) => f.duo) : fam.classification === chip;
     case "spacing":
-      return fam.rep.spacing === chip;
+      return fam.spacing === chip;
     case "weight": {
       const [lo, hi] = WEIGHT_RANGES[chip];
       return fam.fonts.some((f) => f.weight >= lo && f.weight <= hi);
@@ -160,6 +172,18 @@ function chipMatches(group: string, chip: string, fam: Family): boolean {
       return otherTags(fam).includes(chip);
   }
   return false;
+}
+
+/** The style shown on the card: with weight filters on, a style of that weight. */
+export function previewFont(fam: Family, filters: Filters): FontRecord {
+  const ranges = WEIGHT_CHIPS.filter((c) => filters[`weight:${c}`]).map((c) => WEIGHT_RANGES[c]);
+  if (!ranges.length) return fam.rep;
+  const inRange = fam.fonts.filter((f) => ranges.some(([lo, hi]) => f.weight >= lo && f.weight <= hi));
+  if (!inRange.length) return fam.rep;
+  const upright = inRange.filter((f) => !f.italic);
+  const pool = upright.length ? upright : inRange;
+  // Several weights picked: show the heaviest, it differs most from the default preview.
+  return pool.reduce((a, b) => (b.weight > a.weight ? b : a), pool[0]);
 }
 
 /** Within a group chips are OR; across groups they are AND. */

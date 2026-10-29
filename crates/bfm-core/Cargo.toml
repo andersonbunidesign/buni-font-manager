@@ -10,6 +10,8 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 thiserror = "1"
+flate2 = "1"
+krilla = { version = "0.8", default-features = false, features = ["simple-text"] }
 
 [dev-dependencies]
 tempfile = "3"

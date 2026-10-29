@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, FontRecord, ImportReport, Library, Settings } from "./types";
+import type { AppState, ArtworkInfo, DesignFileFonts, FontRecord, ImportReport, Library, Settings } from "./types";
 
 export const api = {
   getState: () => invoke<AppState>("get_state"),
@@ -12,5 +12,7 @@ export const api = {
   getExternal: () => invoke<FontRecord[] | null>("get_external"),
   rescanExternal: () => invoke<FontRecord[]>("rescan_external"),
   getSettings: () => invoke<Settings>("get_settings"),
+  inspectDesignFiles: (paths: string[]) => invoke<DesignFileFonts[]>("inspect_design_files", { paths }),
+  generateArtwork: (collection: string, path: string) => invoke<ArtworkInfo>("generate_artwork", { collection, path }),
   setAdobeDir: (dir: string | null) => invoke<Settings>("set_adobe_dir", { dir }),
 };

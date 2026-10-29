@@ -18,6 +18,16 @@ Open the [Releases page](../../releases), download the file ending in **-setup.e
 
 Coming next: Adobe Fonts and system fonts in collections, AI tagging, Generate Artwork (Illustrator, Affinity, PDF).
 
+## New in 0.3
+
+- Generate Artwork: an A3 PDF specimen of a collection (button at the top right of a collection).
+- Drop Illustrator files (.ai) to see the fonts they use: fonts from your library are turned on, missing ones are listed, and each name can be copied.
+- Focus mode: choose the text and background colours (with the last 10 colours remembered).
+- Same width mode: every preview scaled to the same width.
+- Better style detection (Candara, Century Gothic, blackletter, scripts); Script and Handwritten are now one style.
+- With a weight filter on, cards show that weight.
+- List view scrolls; cards follow the typical preview width; faster Size slider; darker sliders in dark mode.
+
 ## New in 0.2
 
 - System fonts and Adobe Fonts appear in All fonts and the Sources filter, and can go into collections and get tags. They can't be deactivated or deleted from here.

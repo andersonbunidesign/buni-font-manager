@@ -9,7 +9,7 @@
     "opener:default",
     {
       "identifier": "opener:allow-open-path",
-      "allow": [{ "path": "$HOME/Buni Font Manager/**" }]
+      "allow": [{ "path": "$HOME/Buni Font Manager/**" }, { "path": "**/*.pdf" }]
     },
     {
       "identifier": "opener:allow-reveal-item-in-dir",
