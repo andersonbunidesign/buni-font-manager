@@ -262,6 +262,98 @@ pub fn spacing_of(monospace: bool, width: u16, name: &str, from_shape: Option<&s
     from_shape.unwrap_or("Normal").into()
 }
 
+/// Every character a font has, plus the glyphs that have no character of their own
+/// (alternates, ligatures, swashes) as SVG outlines.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlyphMap {
+    /// Unicode code points the font maps, sorted.
+    pub chars: Vec<u32>,
+    pub unmapped: Vec<UnmappedGlyph>,
+    /// Glyphs left out of `unmapped` because there were too many.
+    pub unmapped_more: usize,
+    pub units_per_em: u16,
+    pub ascender: i16,
+    pub descender: i16,
+    pub glyph_count: u16,
+}
+
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnmappedGlyph {
+    pub id: u16,
+    pub name: Option<String>,
+    /// SVG path in font units, y pointing down (baseline at y = 0).
+    pub path: String,
+    pub advance: u16,
+}
+
+struct SvgPath(String);
+
+impl ttf_parser::OutlineBuilder for SvgPath {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.0.push_str(&format!("M{} {}", x.round(), (-y).round()));
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.0.push_str(&format!("L{} {}", x.round(), (-y).round()));
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.0.push_str(&format!("Q{} {} {} {}", x1.round(), (-y1).round(), x.round(), (-y).round()));
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.0.push_str(&format!("C{} {} {} {} {} {}", x1.round(), (-y1).round(), x2.round(), (-y2).round(), x.round(), (-y).round()));
+    }
+    fn close(&mut self) {
+        self.0.push('Z');
+    }
+}
+
+pub fn glyph_map(data: &[u8], index: u32, max_unmapped: usize) -> Result<GlyphMap, ReadError> {
+    let face = Face::parse(data, index).map_err(|_| ReadError::Unreadable)?;
+    let mut map: std::collections::BTreeMap<u32, u16> = std::collections::BTreeMap::new();
+    if let Some(cmap) = face.tables().cmap {
+        for sub in cmap.subtables {
+            if !sub.is_unicode() {
+                continue;
+            }
+            sub.codepoints(|cp| {
+                if let Some(g) = sub.glyph_index(cp) {
+                    if g.0 != 0 {
+                        map.entry(cp).or_insert(g.0);
+                    }
+                }
+            });
+        }
+    }
+    let used: std::collections::HashSet<u16> = map.values().copied().collect();
+    let mut unmapped = Vec::new();
+    let mut more = 0;
+    for id in 1..face.number_of_glyphs() {
+        if used.contains(&id) {
+            continue;
+        }
+        let gid = ttf_parser::GlyphId(id);
+        let mut p = SvgPath(String::new());
+        if face.outline_glyph(gid, &mut p).is_none() || p.0.is_empty() {
+            continue;
+        }
+        if unmapped.len() >= max_unmapped {
+            more += 1;
+            continue;
+        }
+        unmapped.push(UnmappedGlyph { id, name: face.glyph_name(gid).map(String::from), path: p.0, advance: face.glyph_hor_advance(gid).unwrap_or(0) });
+    }
+    Ok(GlyphMap {
+        chars: map.into_keys().collect(),
+        unmapped,
+        unmapped_more: more,
+        units_per_em: face.units_per_em(),
+        ascender: face.ascender(),
+        descender: face.descender(),
+        glyph_count: face.number_of_glyphs(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -295,6 +387,15 @@ mod tests {
         assert_eq!(refine_weight(400, "SemiBold"), 600);
         assert_eq!(refine_weight(400, "Regular Italic"), 400);
         assert_eq!(refine_weight(300, "Book"), 300);
+    }
+
+    #[test]
+    fn lists_characters_and_alternates() {
+        let data = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/PinyonScript-Regular.ttf")).unwrap();
+        let m = glyph_map(&data, 0, 5000).unwrap();
+        assert!(m.chars.contains(&('A' as u32)));
+        assert!(m.chars.windows(2).all(|w| w[0] < w[1]));
+        assert!(m.units_per_em > 0);
     }
 
     #[test]

@@ -391,6 +391,17 @@ async fn generate_artwork(app: AppHandle, collection: String, path: String, form
 
 const LOGO_SVG: &str = include_str!("../../assets/logo.svg");
 
+/// Characters and alternate glyphs of one font, for the font page.
+#[tauri::command]
+async fn font_glyphs(path: String, index: u32) -> Result<bfm_core::reader::GlyphMap, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = std::fs::read(&path).map_err(|e| format!("Could not read the font: {e}"))?;
+        bfm_core::reader::glyph_map(&data, index, 4000).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Saves edits made in the interface (collections, favourites, tags, sample texts).
 /// Font files and activation are not changed here.
 #[tauri::command]
@@ -499,7 +510,8 @@ pub fn run() {
             get_settings,
             set_adobe_dir,
             inspect_design_files,
-            generate_artwork
+            generate_artwork,
+            font_glyphs
         ])
         .setup(move |app| {
             // List system and Adobe fonts in the background; the interface updates when done.

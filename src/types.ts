@@ -101,3 +101,20 @@ export interface ArtworkInfo {
   missing: string[];
   script: string | null;
 }
+
+export interface UnmappedGlyph {
+  id: number;
+  name: string | null;
+  path: string;
+  advance: number;
+}
+
+export interface GlyphMap {
+  chars: number[];
+  unmapped: UnmappedGlyph[];
+  unmappedMore: number;
+  unitsPerEm: number;
+  ascender: number;
+  descender: number;
+  glyphCount: number;
+}

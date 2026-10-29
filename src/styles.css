@@ -20,6 +20,7 @@
   --pressed: #ffffff;
 }
 :root[data-theme="dark"] {
+  color-scheme: dark;
   --bg: #343434;
   --surface: #2c2c2c;
   --card: #3c3c3c;
@@ -234,3 +235,30 @@ code { padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size:
 .status.missing { color: var(--red); }
 .round:disabled { opacity: 0.45; cursor: default; }
 .art-menu { position: absolute; right: 0; top: 50px; z-index: 20; min-width: 170px; }
+
+/* Scrollbars follow the theme */
+::-webkit-scrollbar { width: 12px; height: 12px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: #c9c4bd; border-radius: 6px; border: 3px solid transparent; background-clip: content-box; }
+::-webkit-scrollbar-thumb:hover { background-color: #aaa49c; }
+::-webkit-scrollbar-corner { background: transparent; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background-color: #4a4a4a; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background-color: #5c5c5c; }
+.side::-webkit-scrollbar-thumb { background-color: #4f4f4f; }
+
+/* Font page */
+.fontpage { display: flex; flex-direction: column; gap: 16px; }
+.fp-head { display: flex; align-items: center; gap: 16px; }
+.fp-head h1 { margin: 0; font-size: 28px; font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.fp-styles { display: flex; flex-wrap: wrap; gap: 6px; }
+.chip-btn.light { border-color: var(--line); color: var(--ink); background: var(--card); }
+.chip-btn.light[aria-pressed="true"] { background: var(--amber); border-color: var(--amber); color: #343434; }
+.fp-sample { border-radius: 12px; border: 1px solid var(--line); background: var(--card); line-height: 1.25; overflow-wrap: anywhere; }
+.fp-meta { display: flex; flex-wrap: wrap; gap: 6px 18px; font-size: 12px; color: var(--muted); }
+.glyphs { display: grid; gap: 0; border-top: 1px solid var(--line); border-left: 1px solid var(--line); }
+.glyph { position: relative; aspect-ratio: 1; min-width: 0; border: 0; box-shadow: inset -1px -1px 0 var(--line); background: var(--card); color: var(--ink); cursor: pointer; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; padding: 6px; content-visibility: auto; contain-intrinsic-size: auto 90px; }
+.glyph > span { line-height: 1.1; white-space: pre; }
+.glyph small { font-size: 10px; color: var(--muted); font-family: "Segoe UI", sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.glyph:hover { background: var(--sel-row); z-index: 2; content-visibility: visible; }
+.glyph:hover::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); white-space: pre; padding: 8px 10px; border-radius: 8px; background: #343434; color: #edebe8; font: 600 12px/1.4 "Segoe UI", sans-serif; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3); pointer-events: none; z-index: 10; }
+:root[data-theme="dark"] .glyph:hover::after { background: #edebe8; color: #343434; }

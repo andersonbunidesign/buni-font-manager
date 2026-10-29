@@ -16,6 +16,7 @@ import {
   IconMoon, IconPlus, IconSearch, IconSun, IconTrash, IconUpload, Logo, Star, IconSwap, IconReset, IconWidth, IconCopy, IconArtwork,
 } from "./icons";
 import { ColorPicker, Slider, normHex } from "./controls";
+import { FontPage } from "./FontPage";
 
 /** Sets the preview size without re-rendering the cards. */
 function setPvSize(v: number) {
@@ -95,6 +96,7 @@ export default function App() {
   const [design, setDesign] = useState<{ files: DesignFileFonts[]; activated: number } | null>(null);
   const [artBusy, setArtBusy] = useState(false);
   const [artMenu, setArtMenu] = useState(false);
+  const [detail, setDetail] = useState<{ key: string; id: string; scroll: number } | null>(null);
   const [pad, setPad] = usePref("pad", 1);
   const [caps, setCaps] = usePref("caps", false);
   const [allText, setAllText] = usePref("allText", "Aa Bb Cc");
@@ -400,6 +402,7 @@ export default function App() {
   }, [families, inColl, collection, search, sort, filters, groups]);
 
   const selected = sel.map((k) => famByKey.get(k)).filter((f): f is Family => !!f);
+  const detailFam = detail ? famByKey.get(detail.key) ?? null : null;
   const primaryFam = (primary && famByKey.get(primary)) || selected[0] || null;
   const selectedIds = selected.flatMap((f) => f.ids);
 
@@ -506,6 +509,19 @@ export default function App() {
       setTagCtx(null);
       setTagging(false);
     }
+  }
+
+  /** Double-click on a preview: open the font page. */
+  function openDetail(fam: Family) {
+    setDetail({ key: fam.key, id: previewFont(fam, filters).id, scroll: mainRef.current?.scrollTop ?? 0 });
+    setSel([fam.key]);
+    setPrimary(fam.key);
+    mainRef.current?.scrollTo({ top: 0 });
+  }
+  function closeDetail() {
+    const back = detail?.scroll ?? 0;
+    setDetail(null);
+    requestAnimationFrame(() => mainRef.current?.scrollTo({ top: back }));
   }
 
   function clearSel() {
@@ -741,6 +757,8 @@ export default function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a" && !modal) {
         e.preventDefault();
         setSel(shown.map((f) => f.key));
+      } else if (e.key === "Escape" && detail && !modal) {
+        closeDetail();
       } else if (e.key === "Escape") {
         clearSel();
         setModal((m) => (m === "import" || m === "settings" || m === "report" || m === "adobe" || m === "design" ? null : m));
@@ -1016,7 +1034,7 @@ export default function App() {
           style={focus && colors.on ? ({ "--focus-bg": colors.bg, "--focus-ink": colors.text } as React.CSSProperties) : undefined}
           onClick={onMainClick}
         >
-          {!focus && (
+          {!focus && !detailFam && (
             <div className="titlebar">
               <div>
                 <p className="kicker">Collection</p>
@@ -1062,7 +1080,7 @@ export default function App() {
             </div>
           )}
 
-          {focus && !inColl && collNames.length > 0 && (
+          {focus && !inColl && !detailFam && collNames.length > 0 && (
             <div className="target">
               <label htmlFor="target">Add to collection</label>
               <select id="target" value={target} onChange={(e) => setTarget(e.target.value)}>
@@ -1082,7 +1100,9 @@ export default function App() {
             </div>
           )}
 
-          {families.length === 0 ? (
+          {detailFam ? (
+            <FontPage key={detailFam.key} fam={detailFam} initialId={detail!.id} text={text} caps={caps} align={align} pad={pad} onBack={closeDetail} say={say} />
+          ) : families.length === 0 ? (
             <p className="empty">Your library is empty. Drop zip, OTF or TTF files anywhere in this window, or click Import fonts.</p>
           ) : shown.length === 0 ? (
             <p className="empty">
@@ -1104,7 +1124,7 @@ export default function App() {
                       <div className="fname">{fam.family}</div>
                       <div className="fsub">{famSub(fam)}</div>
                     </div>
-                    <button type="button" className="preview" aria-label={`Select ${fam.family}`} style={{ padding: "6px 0", flex: "1 1 auto", minWidth: 0 }} onClick={(e) => pick(fam, e)}>
+                    <button type="button" className="preview" aria-label={`Select ${fam.family}`} style={{ padding: "6px 0", flex: "1 1 auto", minWidth: 0 }} onClick={(e) => pick(fam, e)} onDoubleClick={() => openDetail(fam)} title="Double-click to see all characters">
                       <span className="pv" style={{ ...previewStyle(previewFont(fam, filters), scaleOf(fam)), lineHeight: 1.2 }}>{previewText}</span>
                     </button>
                     {inColl && (
@@ -1130,6 +1150,8 @@ export default function App() {
                       aria-label={`Select ${fam.family}`}
                       style={{ paddingTop: padV, paddingBottom: focus ? padV : padB, paddingLeft: padL, paddingRight: focus ? 52 : padH, minHeight: cellH }}
                       onClick={(e) => pick(fam, e)}
+                      onDoubleClick={() => openDetail(fam)}
+                      title="Double-click to see all characters"
                     >
                       <span className="pv" style={previewStyle(previewFont(fam, filters), scaleOf(fam))}>{previewText}</span>
                     </button>
@@ -1180,7 +1202,7 @@ export default function App() {
             </div>
           )}
 
-          {!focus && families.length > 0 && <div className="dropzone">Drop zip, OTF or TTF files anywhere in the window to import them, or an Illustrator file to find and turn on its fonts</div>}
+          {!focus && !detailFam && families.length > 0 && <div className="dropzone">Drop zip, OTF or TTF files anywhere in the window to import them, or an Illustrator file to find and turn on its fonts</div>}
         </main>
 
         {!focus && (

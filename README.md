@@ -18,6 +18,11 @@ Open the [Releases page](../../releases), download the file ending in **-setup.e
 
 Coming next: Adobe Fonts and system fonts in collections, AI tagging, Generate Artwork (Illustrator, Affinity, PDF).
 
+## New in 1.0
+
+- Double-click a preview to open the font page: the sample text, every weight, and a table of all its characters. Hover a character to see its code and how to type it on Windows (Alt codes); click to copy it. Alternates and ligatures are shown too.
+- Scrollbars follow dark mode.
+
 ## New in 0.4
 
 - Generate Artwork for Illustrator: the app has Illustrator build the specimen as an .ai file with live text in the real fonts (one A3 artboard per page). If Illustrator can't be reached, the script is saved next to the file to run from File > Scripts > Other Script.
