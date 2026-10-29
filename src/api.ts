@@ -13,6 +13,6 @@ export const api = {
   rescanExternal: () => invoke<FontRecord[]>("rescan_external"),
   getSettings: () => invoke<Settings>("get_settings"),
   inspectDesignFiles: (paths: string[]) => invoke<DesignFileFonts[]>("inspect_design_files", { paths }),
-  generateArtwork: (collection: string, path: string) => invoke<ArtworkInfo>("generate_artwork", { collection, path }),
+  generateArtwork: (collection: string, path: string, format: "ai" | "pdf") => invoke<ArtworkInfo>("generate_artwork", { collection, path, format }),
   setAdobeDir: (dir: string | null) => invoke<Settings>("set_adobe_dir", { dir }),
 };

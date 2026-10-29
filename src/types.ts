@@ -98,4 +98,6 @@ export interface ArtworkInfo {
   pages: number;
   failed: string[];
   outlined: string[];
+  missing: string[];
+  script: string | null;
 }

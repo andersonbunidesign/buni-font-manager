@@ -245,14 +245,6 @@ async fn inspect_design_files(paths: Vec<String>) -> Vec<DesignFileFonts> {
     .unwrap_or_default()
 }
 
-#[derive(Serialize)]
-#[serde(rename_all = "camelCase")]
-struct ArtworkInfo {
-    pages: usize,
-    failed: Vec<String>,
-    outlined: Vec<String>,
-}
-
 /// A system font for the grey labels: Segoe UI on Windows.
 fn label_fonts() -> Option<(Vec<u8>, Vec<u8>)> {
     let mut regular = Vec::new();
@@ -273,58 +265,131 @@ fn label_fonts() -> Option<(Vec<u8>, Vec<u8>)> {
     Some((r, b))
 }
 
-/// Generate Artwork: writes the collection's specimen PDF to `path`.
-#[tauri::command]
-async fn generate_artwork(app: AppHandle, collection: String, path: String) -> Result<ArtworkInfo, String> {
-    let data = app.state::<AppData>();
-    let spec = {
-        let lib = data.lib.lock().unwrap();
-        let ext = data.external.lock().unwrap();
-        let c = lib.collections.iter().find(|c| c.name == collection).ok_or("This collection no longer exists")?;
-        let mut fonts: Vec<FontRecord> = c
-            .font_ids
-            .iter()
-            .filter_map(|id| lib.font(id).cloned().or_else(|| ext.as_ref().and_then(|e| e.iter().find(|f| &f.id == id).cloned())))
-            .collect();
-        let fav = |f: &FontRecord| c.favourites.contains(&f.id);
-        fonts.sort_by(|a, b| {
-            fav(b)
-                .cmp(&fav(a))
-                .then(a.family.to_lowercase().cmp(&b.family.to_lowercase()))
-                .then(a.italic.cmp(&b.italic))
-                .then(a.weight.cmp(&b.weight))
-                .then(a.style.cmp(&b.style))
-        });
-        let rows = fonts
-            .iter()
-            .map(|f| bfm_core::artwork::ArtworkRow {
-                path: f.path.clone(),
-                index: f.index,
-                name: if f.full_name.is_empty() { format!("{} {}", f.family, f.style) } else { f.full_name.clone() },
-                favourite: fav(f),
-                no_embedding: f.no_embedding,
-            })
-            .collect::<Vec<_>>();
-        if rows.is_empty() {
-            return Err("This collection is empty".into());
-        }
-        let (label_font, label_bold) = label_fonts().ok_or("No system font was found for the labels")?;
-        bfm_core::artwork::ArtworkSpec {
-            title: c.name.clone(),
-            sample: c.sample_text.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| c.name.clone()),
-            rows,
-            label_font,
-            label_bold,
-        }
+/// Builds the artwork description of a collection (favourites first, then by family and weight).
+fn artwork_spec(data: &AppData, collection: &str) -> Result<(bfm_core::artwork::ArtworkSpec, Vec<String>), String> {
+    let lib = data.lib.lock().unwrap();
+    let ext = data.external.lock().unwrap();
+    let c = lib.collections.iter().find(|c| c.name == collection).ok_or("This collection no longer exists")?;
+    let mut fonts: Vec<FontRecord> = c
+        .font_ids
+        .iter()
+        .filter_map(|id| lib.font(id).cloned().or_else(|| ext.as_ref().and_then(|e| e.iter().find(|f| &f.id == id).cloned())))
+        .collect();
+    let fav = |f: &FontRecord| c.favourites.contains(&f.id);
+    fonts.sort_by(|a, b| {
+        fav(b)
+            .cmp(&fav(a))
+            .then(a.family.to_lowercase().cmp(&b.family.to_lowercase()))
+            .then(a.italic.cmp(&b.italic))
+            .then(a.weight.cmp(&b.weight))
+            .then(a.style.cmp(&b.style))
+    });
+    // Library fonts that are switched off, so Illustrator can use them.
+    let inactive = fonts.iter().filter(|f| !f.external && !f.active).map(|f| f.id.clone()).collect();
+    let rows = fonts
+        .iter()
+        .map(|f| bfm_core::artwork::ArtworkRow {
+            path: f.path.clone(),
+            index: f.index,
+            name: if f.full_name.is_empty() { format!("{} {}", f.family, f.style) } else { f.full_name.clone() },
+            favourite: fav(f),
+            no_embedding: f.no_embedding,
+            postscript: f.postscript_name.clone(),
+            family: f.family.clone(),
+            style: f.style.clone(),
+        })
+        .collect::<Vec<_>>();
+    if rows.is_empty() {
+        return Err("This collection is empty".into());
+    }
+    let (label_font, label_bold) = label_fonts().ok_or("No system font was found for the labels")?;
+    let ps = |d: &[u8]| bfm_core::reader::read_font_at(d, 0).map(|i| i.postscript_name).unwrap_or_default();
+    let spec = bfm_core::artwork::ArtworkSpec {
+        title: c.name.clone(),
+        sample: c.sample_text.clone().filter(|t| !t.trim().is_empty()).unwrap_or_else(|| c.name.clone()),
+        rows,
+        label_postscript: ps(&label_font),
+        label_bold_postscript: ps(&label_bold),
+        label_font,
+        label_bold,
     };
+    Ok((spec, inactive))
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct ArtworkInfo {
+    pages: usize,
+    failed: Vec<String>,
+    outlined: Vec<String>,
+    /// Fonts Illustrator didn't have.
+    missing: Vec<String>,
+    /// Illustrator couldn't be driven; the script was saved here instead.
+    script: Option<String>,
+}
+
+/// Generate Artwork: writes the collection's specimen to `path`, as a PDF or as an
+/// Illustrator file (built by Illustrator itself, with live text in the real fonts).
+#[tauri::command]
+async fn generate_artwork(app: AppHandle, collection: String, path: String, format: String) -> Result<ArtworkInfo, String> {
+    let data = app.state::<AppData>();
+    let (spec, inactive) = artwork_spec(&data, &collection)?;
+    if format == "ai" {
+        // Turn on the collection's switched-off fonts first, or Illustrator won't find them.
+        if !inactive.is_empty() {
+            let mut lib = data.lib.lock().unwrap();
+            let mut paths = Vec::new();
+            for f in lib.fonts.iter_mut().filter(|f| inactive.contains(&f.id)) {
+                f.active = true;
+                paths.push(f.path.clone());
+            }
+            platform::activate(&paths);
+            save(&data, &lib)?;
+        }
+        let tmp = data.paths.root.join(".artwork");
+        let _ = std::fs::create_dir_all(&tmp);
+        let logo = tmp.join("logo.svg");
+        std::fs::write(&logo, LOGO_SVG).map_err(|e| e.to_string())?;
+        let ai_path = path.clone();
+        let logo_s = logo.to_string_lossy().to_string();
+        return tauri::async_runtime::spawn_blocking(move || {
+            let (js, plan) = bfm_core::artwork::illustrator_script(&spec, &ai_path, &logo_s)?;
+            let script = tmp.join("make-artwork.jsx");
+            std::fs::write(&script, &js).map_err(|e| format!("Could not write the script: {e}"))?;
+            let info = |missing: Vec<String>, script: Option<String>| ArtworkInfo { pages: plan.pages.len(), failed: plan.failed.clone(), outlined: vec![], missing, script };
+            match platform::run_illustrator_script(&script) {
+                Ok(out) if out.starts_with("OK") => {
+                    let missing = out.lines().find_map(|l| l.strip_prefix("MISSING:")).map(|m| m.split('|').map(String::from).collect()).unwrap_or_default();
+                    Ok(info(missing, None))
+                }
+                result => {
+                    // Keep the script next to where the .ai should have gone, to run by hand.
+                    let keep = PathBuf::from(&ai_path).with_extension("jsx");
+                    let _ = std::fs::copy(&script, &keep);
+                    let why = match result {
+                        Ok(out) => out.trim_start_matches("ERROR:").trim().to_string(),
+                        Err(e) => e,
+                    };
+                    Err(format!(
+                        "Illustrator couldn't make the file ({why}). The script was saved as {}: in Illustrator, choose File > Scripts > Other Script and pick it.",
+                        keep.display()
+                    ))
+                }
+            }
+        })
+        .await
+        .map_err(|e| e.to_string())?;
+    }
     tauri::async_runtime::spawn_blocking(move || {
         let r = bfm_core::artwork::render_pdf(&spec)?;
         std::fs::write(&path, &r.pdf).map_err(|e| format!("Could not save the PDF: {e}"))?;
-        Ok(ArtworkInfo { pages: r.pages, failed: r.failed, outlined: r.outlined })
+        Ok(ArtworkInfo { pages: r.pages, failed: r.failed, outlined: r.outlined, missing: vec![], script: None })
     })
     .await
     .map_err(|e| e.to_string())?
 }
+
+const LOGO_SVG: &str = include_str!("../../assets/logo.svg");
 
 /// Saves edits made in the interface (collections, favourites, tags, sample texts).
 /// Font files and activation are not changed here.

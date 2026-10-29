@@ -94,6 +94,7 @@ export default function App() {
   const [picker, setPicker] = useState<null | "text" | "bg">(null);
   const [design, setDesign] = useState<{ files: DesignFileFonts[]; activated: number } | null>(null);
   const [artBusy, setArtBusy] = useState(false);
+  const [artMenu, setArtMenu] = useState(false);
   const [pad, setPad] = usePref("pad", 1);
   const [caps, setCaps] = usePref("caps", false);
   const [allText, setAllText] = usePref("allText", "Aa Bb Cc");
@@ -125,7 +126,7 @@ export default function App() {
   const [importOrigin, setImportOrigin] = useState("Envato");
   const [customOrigin, setCustomOrigin] = useState("");
   const [busy, setBusy] = useState(false);
-  const [report, setReport] = useState<{ report: ImportReport; collection: string | null; origin: string } | null>(null);
+  const [report, setReport] = useState<{ report: ImportReport; collection: string | null; origin: string; dropped: string } | null>(null);
   const [startup, setStartup] = useState(true);
 
   const [flash, setFlash] = useState<{ msg: string; undo: boolean } | null>(null);
@@ -147,7 +148,8 @@ export default function App() {
   const say = useCallback((msg: string, undo = false) => {
     setFlash({ msg, undo });
     window.clearTimeout(flashTimer.current);
-    flashTimer.current = window.setTimeout(() => setFlash(null), undo ? 6000 : 2800);
+    // Long messages (errors, notes) stay up long enough to read.
+    flashTimer.current = window.setTimeout(() => setFlash(null), Math.max(undo ? 6000 : 2800, msg.length * 55));
   }, []);
 
   /** Runs backend calls one after another so saves never overtake each other. */
@@ -315,20 +317,30 @@ export default function App() {
     setModal("design");
   };
 
-  async function generateArtwork() {
+  async function generateArtwork(format: "ai" | "pdf") {
+    setArtMenu(false);
     if (!inColl || artBusy) return;
-    const path = await saveDialog({ defaultPath: `${coll.replace(/[\\/:*?"<>|]/g, "-")}.pdf`, filters: [{ name: "PDF", extensions: ["pdf"] }] });
+    const ext = format === "ai" ? "ai" : "pdf";
+    const path = await saveDialog({
+      defaultPath: `Buni Font Manager_${coll.replace(/[\\/:*?"<>|]/g, "-")}.${ext}`,
+      filters: [format === "ai" ? { name: "Illustrator", extensions: ["ai"] } : { name: "PDF", extensions: ["pdf"] }],
+    });
     if (!path) return;
     setArtBusy(true);
-    say("Generating the artwork…");
-    const res = await run(() => api.generateArtwork(coll, path));
+    say(format === "ai" ? "Building the artwork in Illustrator… (Illustrator opens if it isn't running)" : "Generating the artwork…");
+    const res = await run(() => api.generateArtwork(coll, path, format));
     setArtBusy(false);
     if (!res) return;
+    if (format === "ai") {
+      // Illustrator may have turned on fonts from this collection.
+      api.getState().then((st) => setLib(st.library)).catch(() => {});
+    }
     const notes = [];
     if (res.outlined.length) notes.push(`${plural(res.outlined.length)} drawn as outlines (their licence doesn't allow embedding)`);
     if (res.failed.length) notes.push(`${plural(res.failed.length)} couldn't be read`);
-    say(`Artwork saved: ${res.pages === 1 ? "1 page" : `${res.pages} pages`}${notes.length ? ". " + notes.join(", ") : ""}`);
-    openPath(path).catch(() => {});
+    if (res.missing.length) notes.push(`Illustrator didn't find ${res.missing.join(", ")}`);
+    say(`Artwork saved: ${res.pages === 1 ? "1 page" : `${res.pages} pages`}${notes.length ? ". " + notes.join(". ") : ""}`);
+    if (format === "pdf") openPath(path).catch(() => {});
   }
 
   async function pickFiles() {
@@ -345,7 +357,7 @@ export default function App() {
     setBusy(false);
     if (!res) return;
     setLib(res.library);
-    setReport({ report: res.report, collection: name || null, origin });
+    setReport({ report: res.report, collection: name || null, origin, dropped: describePending(pending) });
     setModal("report");
     if (name) {
       setColl(name);
@@ -426,20 +438,32 @@ export default function App() {
     fonts.ready.then(measure).catch(() => {});
     return () => fonts.removeEventListener("loadingdone", later);
   }, [measure]);
-  // Card width follows the typical preview (the median), so one very wide font doesn't
-  // stretch every card; wider previews end in "…". Cards then stretch to fill the row.
-  const medianW = useMemo(() => {
+  // Card width follows a typical preview (70% of previews fit, plus some air), so one very
+  // wide font doesn't stretch every card; wider previews end in "…". Cards then fill the row.
+  const mainRef = useRef<HTMLElement>(null);
+  const [mainW, setMainW] = useState(1000);
+  useEffect(() => {
+    const el = mainRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(() => setMainW(el.clientWidth - 48));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [loaded]);
+  const { medianW, typicalRaw } = useMemo(() => {
     const v = shown.map((f) => widths.get(f.key)).filter((x): x is number => !!x).sort((a, b) => a - b);
-    return v.length ? v[Math.floor(v.length / 2)] : 0;
+    if (!v.length) return { medianW: 0, typicalRaw: 0 };
+    return { medianW: v[Math.floor(v.length / 2)], typicalRaw: v[Math.min(v.length - 1, Math.floor(v.length * 0.7))] };
   }, [shown, widths]);
-  const typicalW = Math.ceil((medianW * size) / 100);
-  const maxCell = Math.max(480, size * 4);
-  const cellW = Math.min(maxCell, focus ? Math.max(140, typicalW + padL + 52 + 4) : Math.max(230, typicalW + padL + padH + 4));
-  /** In same-width mode every preview is scaled to the typical width (capped so condensed fonts don't explode). */
+  const sidePad = focus ? padL + 52 + 4 : padL + padH + 4;
+  const typicalW = Math.min(Math.ceil(((sameWidth ? medianW : typicalRaw) * size) / 100 * (sameWidth ? 1 : 1.08)), Math.max(60, mainW - sidePad));
+  const cellW = Math.max(focus ? 140 : 230, typicalW + sidePad);
+  /** In same-width mode every preview is scaled to exactly the text width of a card (capped so condensed fonts don't explode). */
   const scaleOf = (fam: Family) => {
     if (!sameWidth) return 1;
     const w = widths.get(fam.key);
-    return w && medianW ? Math.min(2.2, medianW / w) : 1;
+    if (!w || !medianW) return 1;
+    const target = typicalW / ((medianW * size) / 100);
+    return Math.min(2.2 * target, (medianW / w) * target);
   };
 
   const faces = useMemo(
@@ -798,7 +822,7 @@ export default function App() {
         </div>
         <input className="sample" type="text" aria-label="Sample text" placeholder="Type your sample text" value={text} onChange={(e) => onText(e.target.value)} />
         <div className="sliders">
-          <Slider id="size" label={(v) => `Size ${v}`} min={20} max={240} value={size} onLive={setPvSize} onCommit={setSize} />
+          <Slider id="size" label={(v) => (sameWidth ? "Width" : `Size ${v}`)} min={20} max={240} value={size} onLive={setPvSize} onCommit={setSize} />
           <Slider id="pad" label={(v) => `Padding ×${v.toFixed(1)}`} min={0.2} max={1.6} step={0.1} value={pad} onCommit={setPad} />
         </div>
         <button type="button" className="caps" aria-pressed={caps} aria-label="Show previews in capitals" title="All caps" onClick={() => setCaps(!caps)}>
@@ -987,6 +1011,7 @@ export default function App() {
         )}
 
         <main
+          ref={mainRef}
           className={`main${focus && colors.on ? " custom" : ""}`}
           style={focus && colors.on ? ({ "--focus-bg": colors.bg, "--focus-ink": colors.text } as React.CSSProperties) : undefined}
           onClick={onMainClick}
@@ -1009,13 +1034,29 @@ export default function App() {
                 </div>
               </div>
               {inColl && (
-                <div style={{ display: "flex", gap: 8, alignSelf: "flex-end" }}>
+                <div style={{ display: "flex", gap: 8, alignSelf: "flex-end", marginLeft: "auto" }}>
                   <button type="button" className="round" aria-label="Add recent Adobe Fonts to this collection" title="Add recent Adobe Fonts" onClick={() => setModal("adobe")}>
                     <IconClock />
                   </button>
-                  <button type="button" className="round" aria-label="Generate Artwork (PDF)" title="Generate Artwork (PDF)" disabled={artBusy || !collection?.fontIds.length} onClick={generateArtwork}>
-                    <IconArtwork />
-                  </button>
+                  <div style={{ position: "relative" }}>
+                    <button
+                      type="button"
+                      className="round"
+                      aria-label="Generate Artwork"
+                      aria-expanded={artMenu}
+                      title="Generate Artwork"
+                      disabled={artBusy || !collection?.fontIds.length}
+                      onClick={() => setArtMenu(!artMenu)}
+                    >
+                      <IconArtwork />
+                    </button>
+                    {artMenu && (
+                      <div className="menu art-menu" role="menu" aria-label="Generate Artwork" onMouseLeave={() => setArtMenu(false)}>
+                        <button type="button" role="menuitem" onClick={() => generateArtwork("ai")}>Illustrator (.ai)</button>
+                        <button type="button" role="menuitem" onClick={() => generateArtwork("pdf")}>PDF</button>
+                      </div>
+                    )}
+                  </div>
                 </div>
               )}
             </div>
@@ -1273,6 +1314,8 @@ export default function App() {
             <div>
               <h2>Import finished</h2>
               <p className="muted" style={{ marginTop: 6 }}>
+                {report.dropped}
+                <br />
                 {report.collection ? `Added to the collection ${report.collection}` : "Imported without a collection"} · origin {report.origin}
               </p>
             </div>

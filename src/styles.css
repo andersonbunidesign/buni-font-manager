@@ -50,11 +50,11 @@ body {
 button { font-family: inherit; color: inherit; }
 input, select { font-family: inherit; }
 input[type="range"] { accent-color: var(--amber); }
-:root { --track: #cfcac3; --pv-size: 44px; }
-:root[data-theme="dark"] { --track: #4f4f4f; }
-.slider { -webkit-appearance: none; appearance: none; height: 16px; background: transparent; cursor: pointer; }
-.slider::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: linear-gradient(to right, var(--amber) var(--fill, 50%), var(--track) var(--fill, 50%)); }
-.slider::-webkit-slider-thumb { -webkit-appearance: none; width: 16px; height: 16px; margin-top: -6px; border-radius: 50%; background: var(--amber); border: 2px solid var(--surface); box-shadow: 0 0 0 1px var(--line); }
+:root { --pv-size: 44px; }
+.slider { -webkit-appearance: none; appearance: none; height: 14px; background: transparent; cursor: pointer; }
+.slider::-webkit-slider-runnable-track { height: 3px; border-radius: 2px; background: linear-gradient(to right, #b8b2aa var(--fill, 50%), #dcd8d2 var(--fill, 50%)); }
+.slider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; margin-top: -4.5px; border-radius: 50%; background: var(--amber); border: 0; }
+:root[data-theme="dark"] .slider::-webkit-slider-runnable-track { background: linear-gradient(to right, #6a6a6a var(--fill, 50%), #3e3e3e var(--fill, 50%)); }
 :focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
 .app { height: 100%; display: flex; flex-direction: column; position: relative; }
@@ -140,7 +140,8 @@ input[type="range"] { accent-color: var(--amber); }
 .row { display: flex; align-items: center; gap: 12px; padding-top: 8px; padding-right: 12px; padding-bottom: 8px; border-bottom: 1px solid var(--line); min-height: 60px; }
 .row.sel { background: var(--sel-row); }
 .row .info { flex: 0 0 180px; min-width: 0; }
-.target { display: flex; align-items: center; gap: 10px; }
+.target { display: flex; align-items: center; gap: 10px; position: sticky; top: -24px; z-index: 6; margin: -24px -24px 0; padding: 16px 24px 12px; background: var(--bg); }
+.main.custom .target { background: var(--focus-bg); }
 .target label { font-size: 12px; font-weight: 600; color: var(--muted); }
 .target select { height: 40px; font-weight: 600; font-size: 14px; }
 
@@ -192,7 +193,9 @@ code { padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size:
 .list { flex: 0 0 auto; }
 .grid { flex: 0 0 auto; }
 .card, .row { content-visibility: auto; contain-intrinsic-size: auto 180px; }
-.preview .pv { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; }
+/* Room above and below so tall accents and swashes aren't cut; the layout doesn't change. */
+.preview .pv { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; overflow-wrap: normal; padding: 0.35em 0; margin: -0.35em 0; }
+.preview { overflow: visible; }
 .seg[hidden] { display: none; }
 .caps svg { display: block; margin: auto; }
 /* Focus mode colours */
@@ -230,3 +233,4 @@ code { padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size:
 .status.off { color: var(--amber-ink); }
 .status.missing { color: var(--red); }
 .round:disabled { opacity: 0.45; cursor: default; }
+.art-menu { position: absolute; right: 0; top: 50px; z-index: 20; min-width: 170px; }

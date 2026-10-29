@@ -18,6 +18,14 @@ Open the [Releases page](../../releases), download the file ending in **-setup.e
 
 Coming next: Adobe Fonts and system fonts in collections, AI tagging, Generate Artwork (Illustrator, Affinity, PDF).
 
+## New in 0.4
+
+- Generate Artwork for Illustrator: the app has Illustrator build the specimen as an .ai file with live text in the real fonts (one A3 artboard per page). If Illustrator can't be reached, the script is saved next to the file to run from File > Scripts > Other Script.
+- New app icon.
+- Artwork files are named "Buni Font Manager_[collection]".
+- Same width mode never cuts previews; All caps updates the card width; previews aren't clipped at the top or bottom.
+- Add to collection stays at the top in focus mode; the import report shows how many files were dropped; quieter sliders.
+
 ## New in 0.3
 
 - Generate Artwork: an A3 PDF specimen of a collection (button at the top right of a collection).
