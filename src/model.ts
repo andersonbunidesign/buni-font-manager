@@ -105,12 +105,18 @@ export function customTags(fam: Family): string[] {
   return uniq(fam.fonts.flatMap((f) => f.customTags));
 }
 
+/** Shape tags of the family (from its representative style). */
+export function traitsOf(fam: Family): string[] {
+  return fam.rep.traits ?? [];
+}
+
 /** Tags read from the file or added by the import. */
 export function fixedTags(fam: Family): string[] {
   const t = [fam.classification, fam.spacing];
   if (fam.fonts.some((f) => f.duo)) t.push("Duo");
   if (fam.fonts.some((f) => f.variable)) t.push("Variable");
   if (fam.fonts.some((f) => f.italic)) t.push("Italic");
+  t.push(...traitsOf(fam));
   return uniq(t);
 }
 
@@ -130,7 +136,7 @@ export function otherTags(fam: Family): string[] {
   const meta: string[] = [];
   if (fam.fonts.some((f) => f.variable)) meta.push("Variable");
   if (fam.fonts.some((f) => f.italic)) meta.push("Italic");
-  return uniq([...aiTags(fam), ...meta, ...customTags(fam)]);
+  return uniq([...traitsOf(fam), ...aiTags(fam), ...meta, ...customTags(fam)]);
 }
 
 export type Filters = Record<string, boolean>;
@@ -201,4 +207,40 @@ export function cloneLibrary(lib: Library): Library {
 
 export function fontFaceName(id: string): string {
   return `bfm-${id}`;
+}
+
+/**
+ * Families most like `target`, by shape measurements (weight, width, contrast,
+ * x-height, serifs, slant, roundness), each scaled by how much it varies in the library.
+ */
+export function similarFamilies(target: Family, all: Family[], count = 24): Family[] {
+  const fp = (f: Family) => f.rep.fingerprint ?? [];
+  const pool = all.filter((f) => f.key !== target.key && fp(f).length);
+  const t = fp(target);
+  if (!t.length || !pool.length) return [];
+  const dims = t.length;
+  const sd = Array.from({ length: dims }, (_, i) => {
+    const v = pool.map((f) => fp(f)[i] ?? 0);
+    const mean = v.reduce((a, b) => a + b, 0) / v.length;
+    return Math.sqrt(v.reduce((a, b) => a + (b - mean) ** 2, 0) / v.length) || 1;
+  });
+  const weights = [1, 1.2, 1.2, 0.8, 1.4, 1, 0.8];
+  const dist = (f: Family) => {
+    const p = fp(f);
+    let d = 0;
+    for (let i = 0; i < dims; i++) d += (weights[i] ?? 1) * (((p[i] ?? 0) - t[i]) / sd[i]) ** 2;
+    // Same style (Serif, Script…) counts for a lot; same traits a little.
+    if (f.classification !== target.classification) d += 6;
+    const tt = new Set(traitsOf(target));
+    for (const x of traitsOf(f)) if (tt.has(x)) d -= 0.5;
+    return d;
+  };
+  // One entry per family name: the same family from two sources is listed once.
+  const seen = new Set<string>([target.family.toLowerCase()]);
+  return pool
+    .map((f) => ({ f, d: dist(f) }))
+    .sort((a, b) => a.d - b.d)
+    .filter(({ f }) => !seen.has(f.family.toLowerCase()) && seen.add(f.family.toLowerCase()))
+    .slice(0, count)
+    .map((x) => x.f);
 }

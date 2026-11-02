@@ -1,5 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { AppState, ArtworkInfo, DesignFileFonts, FontRecord, GlyphMap, ImportReport, Library, Settings } from "./types";
+import type { AppState, ArtworkInfo, DesignFileFonts, FontRecord, GlyphMap, GlyphOutline, ImportReport, Library, Settings } from "./types";
 
 export const api = {
   getState: () => invoke<AppState>("get_state"),
@@ -15,5 +15,7 @@ export const api = {
   inspectDesignFiles: (paths: string[]) => invoke<DesignFileFonts[]>("inspect_design_files", { paths }),
   generateArtwork: (collection: string, path: string, format: "ai" | "pdf") => invoke<ArtworkInfo>("generate_artwork", { collection, path, format }),
   fontGlyphs: (path: string, index: number) => invoke<GlyphMap>("font_glyphs", { path, index }),
+  glyphOutline: (path: string, index: number, cp: number | null, glyphId: number | null) =>
+    invoke<GlyphOutline>("glyph_outline", { path, index, cp, glyphId }),
   setAdobeDir: (dir: string | null) => invoke<Settings>("set_adobe_dir", { dir }),
 };

@@ -116,6 +116,34 @@ fn rescan(app: &AppHandle) -> Vec<FontRecord> {
     list
 }
 
+/// Watches the Adobe Fonts folder and the user's font folders, so fonts turned on in
+/// Creative Cloud (or installed in Windows) appear without restarting the app.
+fn watch_font_folders(app: AppHandle) {
+    use notify::{RecursiveMode, Watcher};
+    let (tx, rx) = std::sync::mpsc::channel();
+    let Ok(mut watcher) = notify::recommended_watcher(move |res: notify::Result<notify::Event>| {
+        if res.is_ok() {
+            let _ = tx.send(());
+        }
+    }) else {
+        return;
+    };
+    let settings = app.state::<AppData>().settings.lock().unwrap().clone();
+    for src in scan_sources(&settings) {
+        // The big system folders rarely change; watch the Adobe and per-user ones.
+        let system_wide = src.origin == ORIGIN_SYSTEM && !src.dir.starts_with(dirs::home_dir().unwrap_or_default()) && !cfg!(windows);
+        if src.dir.exists() && !system_wide {
+            let mode = if src.recursive { RecursiveMode::Recursive } else { RecursiveMode::NonRecursive };
+            let _ = watcher.watch(&src.dir, mode);
+        }
+    }
+    // Adobe writes several files per font: wait until things settle, then look again.
+    while rx.recv().is_ok() {
+        while rx.recv_timeout(std::time::Duration::from_secs(3)).is_ok() {}
+        rescan(&app);
+    }
+}
+
 #[tauri::command]
 fn get_external(data: State<AppData>) -> Option<Vec<FontRecord>> {
     data.external.lock().unwrap().clone()
@@ -411,6 +439,17 @@ async fn font_glyphs(path: String, index: u32) -> Result<bfm_core::reader::Glyph
     .map_err(|e| e.to_string())?
 }
 
+/// Outline of one glyph (by character or glyph number), for the zoomed glyph view.
+#[tauri::command]
+async fn glyph_outline(path: String, index: u32, cp: Option<u32>, glyph_id: Option<u16>) -> Result<bfm_core::reader::GlyphOutline, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let data = std::fs::read(&path).map_err(|e| format!("Could not read the font: {e}"))?;
+        bfm_core::reader::glyph_outline(&data, index, cp, glyph_id).map_err(|e| e.to_string())
+    })
+    .await
+    .map_err(|e| e.to_string())?
+}
+
 /// Saves edits made in the interface (collections, favourites, tags, sample texts).
 /// Font files and activation are not changed here.
 #[tauri::command]
@@ -520,13 +559,15 @@ pub fn run() {
             set_adobe_dir,
             inspect_design_files,
             generate_artwork,
-            font_glyphs
+            font_glyphs,
+            glyph_outline
         ])
         .setup(move |app| {
             // List system and Adobe fonts in the background; the interface updates when done.
             let handle = app.handle().clone();
             std::thread::spawn(move || {
                 rescan(&handle);
+                watch_font_folders(handle);
             });
             let open = MenuItem::with_id(app, "open", "Open Buni Font Manager", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "Quit", true, None::<&str>)?;

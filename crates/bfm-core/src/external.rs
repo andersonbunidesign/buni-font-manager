@@ -108,6 +108,8 @@ fn read_records(path: &Path, origin: &str, mtime: u64) -> Vec<FontRecord> {
             hidden_ai_tags: vec![],
             custom_tags: vec![],
             external: true,
+            traits: info.traits,
+            fingerprint: info.fingerprint,
             index,
         });
     }

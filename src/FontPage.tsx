@@ -1,5 +1,6 @@
 // The font page: one family, its sample text and every character it has.
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { GlyphZoom, type GlyphRef } from "./GlyphZoom";
 import { api } from "./api";
 import type { FontRecord, GlyphMap } from "./types";
 import { fontFaceName, weightName, type Family } from "./model";
@@ -69,6 +70,8 @@ export function FontPage(props: {
   const [glyphs, setGlyphs] = useState<GlyphMap | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showAll, setShowAll] = useState(false);
+  const [zoomAt, setZoomAt] = useState<number | null>(null);
+  const clickTimer = useRef<number | undefined>(undefined);
 
   useEffect(() => {
     let live = true;
@@ -85,15 +88,43 @@ export function FontPage(props: {
 
   // Control characters have nothing to show.
   const chars = useMemo(() => (glyphs?.chars ?? []).filter((cp) => cp >= 0x20 && !(cp >= 0x7f && cp < 0xa0) && !(cp >= 0xd800 && cp < 0xe000)), [glyphs]);
-  const shownChars = showAll ? chars : chars.slice(0, MAX_CHARS);
+  const shownChars = useMemo(() => (showAll ? chars : chars.slice(0, MAX_CHARS)), [showAll, chars]);
   const family = `"${fontFaceName(font.id)}", "Segoe UI", sans-serif`;
+  // Every glyph in table order, for the zoomed view's next / previous.
+  const refs: GlyphRef[] = useMemo(() => [...shownChars.map((cp) => ({ cp })), ...(glyphs?.unmapped ?? []).map((g) => ({ gid: g.id, name: g.name }))], [shownChars, glyphs]);
+  const refIndex = useMemo(() => new Map(refs.map((r, i) => ["cp" in r ? `c${r.cp}` : `g${r.gid}`, i])), [refs]);
   const cell = `calc(var(--pv-size) * 1.5 + ${Math.round(16 * pad)}px)`;
+
+  // One click copies, two clicks open the glyph view: wait a moment to tell them apart.
+  function onGlyphClick(action: () => void) {
+    window.clearTimeout(clickTimer.current);
+    clickTimer.current = window.setTimeout(action, 250);
+  }
+  function onGlyphDouble(i: number) {
+    window.clearTimeout(clickTimer.current);
+    setZoomAt(i);
+  }
 
   function copy(ch: string, label: string) {
     navigator.clipboard
       .writeText(ch)
       .then(() => say(`Copied ${label}`))
       .catch(() => say("Couldn't copy"));
+  }
+
+  if (zoomAt !== null && refs[zoomAt]) {
+    return (
+      <GlyphZoom
+        path={font.path}
+        index={font.index ?? 0}
+        fontFamily={family}
+        list={refs}
+        at={zoomAt}
+        onAt={setZoomAt}
+        onClose={() => setZoomAt(null)}
+        onCopy={(cp) => copy(String.fromCodePoint(cp), `${String.fromCodePoint(cp)} (${hex(cp)})`)}
+      />
+    );
   }
 
   return (
@@ -135,7 +166,7 @@ export function FontPage(props: {
             {glyphs.unmapped.length + glyphs.unmappedMore > 0 ? ` · ${(glyphs.unmapped.length + glyphs.unmappedMore).toLocaleString()} alternates and other glyphs` : ""}
           </span>
         )}
-        <span>Hover a character to see how to type it, click to copy it</span>
+        <span>Hover a character to see how to type it · click to copy · double-click to see its points and handles</span>
       </div>
 
       {error && <p className="empty">{error}</p>}
@@ -148,7 +179,7 @@ export function FontPage(props: {
               const ch = String.fromCodePoint(cp);
               const tip = `${cp === 0x20 ? "Space" : ch}  ${hex(cp)}\n${howToType(cp)}`;
               return (
-                <button key={cp} type="button" className="glyph" data-tip={tip} aria-label={`${hex(cp)}: ${howToType(cp)}`} onClick={() => copy(ch, cp === 0x20 ? "a space" : `${ch} (${hex(cp)})`)}>
+                <button key={cp} type="button" className="glyph" data-tip={tip} aria-label={`${hex(cp)}: ${howToType(cp)}`} onClick={() => onGlyphClick(() => copy(ch, cp === 0x20 ? "a space" : `${ch} (${hex(cp)})`))} onDoubleClick={() => onGlyphDouble(refIndex.get(`c${cp}`) ?? 0)}>
                   <span style={{ fontFamily: family, fontSize: "var(--pv-size)" }}>{ch}</span>
                   <small>{hex(cp)}</small>
                 </button>
@@ -179,7 +210,8 @@ export function FontPage(props: {
                       className="glyph"
                       data-tip={`${g.name ?? `Glyph ${g.id}`}\nNo character code: use Illustrator's Glyphs panel`}
                       aria-label={g.name ?? `Glyph ${g.id}`}
-                      onClick={() => say("This glyph has no character code, so it can't be copied as text. Use Illustrator's Glyphs panel.")}
+                      onClick={() => onGlyphClick(() => say("This glyph has no character code, so it can't be copied as text. Double-click to see it large. Use Illustrator's Glyphs panel to place it."))}
+                      onDoubleClick={() => onGlyphDouble(refIndex.get(`g${g.id}`) ?? 0)}
                     >
                       <svg viewBox={`0 ${-top} ${w} ${h}`} style={{ height: "calc(var(--pv-size) * 1.15)", width: "auto", maxWidth: "100%", overflow: "visible" }} aria-hidden="true">
                         <path d={g.path} fill="currentColor" />

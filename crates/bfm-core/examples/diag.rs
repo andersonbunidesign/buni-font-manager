@@ -10,8 +10,8 @@ fn main() {
         let (class, pan) = if os2.len() >= 42 { (i16::from_be_bytes([os2[30], os2[31]]), os2[32..42].to_vec()) } else { (0, vec![]) };
         let s = bfm_core::shape::analyse(&face);
         println!(
-            "{:22} {:14} w{:4} {:12} {:10} | class {:#06x} pan {:?} | n {:.2?} I {:.2?} l {:.2?} slant {:.2} over {:.2} caps {} uw {:.2?} | {}",
-            info.family, info.style, info.weight, info.classification, info.spacing, class, pan, s.n_ratio, s.i_ratio, s.l_ratio, s.slant, s.overhang, s.caps_only, s.upper_width, p.rsplit('/').next().unwrap()
+            "{:22} {:14} w{:4} {:12} {:10} {:?} | class {:#06x} pan {:?} | n {:.2?} I {:.2?} l {:.2?} slant {:.2} over {:.2} caps {} uw {:.2?} | {}",
+            info.family, info.style, info.weight, info.classification, info.spacing, info.traits, class, pan, s.n_ratio, s.i_ratio, s.l_ratio, s.slant, s.overhang, s.caps_only, s.upper_width, p.rsplit('/').next().unwrap()
         );
     }
 }

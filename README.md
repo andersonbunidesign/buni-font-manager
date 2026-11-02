@@ -18,6 +18,16 @@ Open the [Releases page](../../releases), download the file ending in **-setup.e
 
 Coming next: Adobe Fonts and system fonts in collections, AI tagging, Generate Artwork (Illustrator, Affinity, PDF).
 
+## New in 1.2
+
+- Adobe Fonts turned on in Creative Cloud appear right away (the folder is watched, and checked again when you come back to the app).
+- Focus mode: a Columns slider (Auto, or 1 to 8 columns).
+- Space bar: the selected font fills the window. Scroll zooms, drag moves, arrows go to the next or previous font, Space or Esc closes.
+- Shape tags read from the letters: High contrast, Monolinear, Geometric, Rounded, Stencil, Outline, Large or Small x-height, All caps.
+- Find similar fonts: the closest fonts in shape from your whole library.
+- Font page: one click copies a character, a double-click shows it large with its anchor points, bezier handles and metrics.
+- Padding: more air around each preview and between cards; aligned left the left edge stays put, centred both sides grow alike.
+
 ## New in 1.1: Mac version
 
 - A Mac app (Apple silicon and Intel, macOS 11 or later), as a .dmg on the Releases page.

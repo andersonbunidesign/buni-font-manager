@@ -146,6 +146,13 @@ export const IconArtwork = (p: P) => (
   </S>
 );
 
+export const IconSimilar = (p: P) => (
+  <S {...p}>
+    <circle cx="9" cy="12" r="5" />
+    <circle cx="15" cy="12" r="5" />
+  </S>
+);
+
 export function Star({ on, size = 20 }: { on: boolean; size?: number }) {
   return (
     <svg width={size} height={size} viewBox="0 0 24 24" fill={on ? "#FFBF00" : "none"} stroke={on ? "#C99700" : "var(--star-off)"} strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true">

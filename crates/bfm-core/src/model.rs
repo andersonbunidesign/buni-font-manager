@@ -59,6 +59,12 @@ pub struct FontRecord {
     /// A font the app doesn't own: installed in Windows or synced by Adobe Fonts.
     #[serde(default)]
     pub external: bool,
+    /// Tags read from the letter shapes (Monolinear, Stencil…).
+    #[serde(default)]
+    pub traits: Vec<String>,
+    /// Shape measurements used to find similar fonts.
+    #[serde(default)]
+    pub fingerprint: Vec<f32>,
     /// Position inside a .ttc collection file.
     #[serde(default)]
     pub index: u32,
@@ -116,7 +122,7 @@ pub struct Library {
 }
 
 /// Bump when the style detection improves, so existing libraries are re-read once.
-pub const DETECTION_VERSION: u32 = 3;
+pub const DETECTION_VERSION: u32 = 4;
 
 fn version_one() -> u32 {
     1

@@ -8,15 +8,16 @@ import { enable as enableAutostart, disable as disableAutostart, isEnabled as au
 import { api } from "./api";
 import type { DesignFileFonts, ExternalMeta, FontRecord, ImportReport, Library, Settings } from "./types";
 import {
-  ALL, buildFamilies, cloneLibrary, filterGroups, fontFaceName, matchesFilters, previewFont, tagList, weightName,
+  ALL, buildFamilies, cloneLibrary, filterGroups, fontFaceName, matchesFilters, previewFont, similarFamilies, tagList, weightName,
   type Family, type Filters,
 } from "./model";
 import {
   IconAlignCenter, IconAlignLeft, IconArrowIn, IconCheckCircle, IconClock, IconX, IconDots, IconFocus, IconFolder, IconGear, IconGrid, IconList, IconMinusCircle,
-  IconMoon, IconPlus, IconSearch, IconSun, IconTrash, IconUpload, Logo, Star, IconSwap, IconReset, IconWidth, IconCopy, IconArtwork,
+  IconMoon, IconPlus, IconSearch, IconSun, IconTrash, IconUpload, Logo, Star, IconSwap, IconReset, IconWidth, IconCopy, IconArtwork, IconSimilar,
 } from "./icons";
 import { ColorPicker, Slider, normHex } from "./controls";
 import { FontPage } from "./FontPage";
+import { QuickLook } from "./QuickLook";
 import { OS } from "./platform";
 
 /** Sets the preview size without re-rendering the cards. */
@@ -98,6 +99,9 @@ export default function App() {
   const [artBusy, setArtBusy] = useState(false);
   const [artMenu, setArtMenu] = useState(false);
   const [detail, setDetail] = useState<{ key: string; id: string; scroll: number } | null>(null);
+  const [quick, setQuick] = useState<number | null>(null);
+  const [similar, setSimilar] = useState<string | null>(null);
+  const [cols, setCols] = usePref("focusCols", 0);
   const [pad, setPad] = usePref("pad", 1);
   const [caps, setCaps] = usePref("caps", false);
   const [allText, setAllText] = usePref("allText", "Aa Bb Cc");
@@ -248,6 +252,20 @@ export default function App() {
   }, []);
 
   useEffect(() => setPvSize(size), [size]);
+  useEffect(() => setSimilar(null), [coll]);
+
+  // Fonts turned on in Creative Cloud while the app was in the background show up
+  // when you come back to it (the folder is also watched while the app runs).
+  useEffect(() => {
+    let last = 0;
+    const onFocus = () => {
+      if (Date.now() - last < 15000) return;
+      last = Date.now();
+      api.rescanExternal().then(setExternal).catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
 
   useEffect(() => {
     document.documentElement.dataset.theme = dark ? "dark" : "light";
@@ -389,7 +407,9 @@ export default function App() {
 
   const isFav = (f: Family) => !!collection && f.ids.some((id) => collection.favourites.includes(id));
 
+  const similarFam = similar ? famByKey.get(similar) ?? null : null;
   const shown = useMemo(() => {
+    if (similarFam) return [similarFam, ...similarFamilies(similarFam, families)];
     const q = search.trim().toLowerCase();
     let list = families.filter((f) => {
       if (inColl && !f.ids.some((id) => collection!.fontIds.includes(id))) return false;
@@ -400,7 +420,7 @@ export default function App() {
     if (inColl) list = [...list.filter(isFav), ...list.filter((f) => !isFav(f))];
     return list;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [families, inColl, collection, search, sort, filters, groups]);
+  }, [families, inColl, collection, search, sort, filters, groups, similarFam]);
 
   const selected = sel.map((k) => famByKey.get(k)).filter((f): f is Family => !!f);
   const detailFam = detail ? famByKey.get(detail.key) ?? null : null;
@@ -410,12 +430,13 @@ export default function App() {
   const text = inColl ? collection!.sampleText ?? collection!.name : allText;
   const previewText = text.length > 50 ? text.slice(0, 50).trimEnd() + "…" : text;
   const cellH = `calc(var(--pv-size) * ${sameWidth ? 1.6 : 1.3} + (var(--pv-size) * 0.4 + 60px) * ${pad})`;
+  // Padding is the air around each preview: above, below and to the right. Aligned left,
+  // the left edge stays put so names and previews line up; centred, both sides grow alike.
   const padV = Math.round(22 * pad);
-  const padH = Math.round(24 * pad);
-  // The left inset stays put; the Padding slider only changes the space above, below and to the right.
-  const padL = 24;
+  const padH = focus ? Math.max(52, Math.round(24 * pad)) : Math.round(24 * pad);
+  const padL = align === "center" ? padH : 24;
   const padB = Math.round(14 * pad);
-  const gap = Math.max(4, Math.round(14 * pad));
+  const gap = Math.max(4, Math.round(16 * pad));
 
   // Every preview is measured once at 100px (widths scale with the size), so moving
   // the Size slider never re-measures. Measured again only when text or fonts change.
@@ -458,7 +479,10 @@ export default function App() {
     if (!v.length) return { medianW: 0, typicalRaw: 0 };
     return { medianW: v[Math.floor(v.length / 2)], typicalRaw: v[Math.min(v.length - 1, Math.floor(v.length * 0.7))] };
   }, [shown, widths]);
-  const sidePad = focus ? padL + 52 + 4 : padL + padH + 4;
+  const sidePad = padL + padH + 4;
+  const fixedCols = focus && cols > 0;
+  /** Text width of one column when the Columns slider sets a fixed number. */
+  const colTextW = fixedCols ? Math.max(40, (mainW - gap * (cols - 1)) / cols - sidePad) : 0;
   const typicalW = Math.min(Math.ceil(((sameWidth ? medianW : typicalRaw) * size) / 100 * (sameWidth ? 1 : 1.08)), Math.max(60, mainW - sidePad));
   const cellW = Math.max(focus ? 140 : 230, typicalW + sidePad);
   /** In same-width mode every preview is scaled to exactly the text width of a card (capped so condensed fonts don't explode). */
@@ -466,7 +490,7 @@ export default function App() {
     if (!sameWidth) return 1;
     const w = widths.get(fam.key);
     if (!w || !medianW) return 1;
-    const target = typicalW / ((medianW * size) / 100);
+    const target = (fixedCols ? colTextW : typicalW) / ((medianW * size) / 100);
     return Math.min(2.2 * target, (medianW / w) * target);
   };
 
@@ -758,8 +782,14 @@ export default function App() {
       } else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "a" && !modal) {
         e.preventDefault();
         setSel(shown.map((f) => f.key));
+      } else if (e.key === " " && !modal && !detail && quick === null && shown.length) {
+        e.preventDefault();
+        const i = primary ? shown.findIndex((f) => f.key === primary) : -1;
+        setQuick(i >= 0 ? i : 0);
       } else if (e.key === "Escape" && detail && !modal) {
         closeDetail();
+      } else if (e.key === "Escape" && similar && !modal) {
+        setSimilar(null);
       } else if (e.key === "Escape") {
         clearSel();
         setModal((m) => (m === "import" || m === "settings" || m === "report" || m === "adobe" || m === "design" ? null : m));
@@ -843,6 +873,7 @@ export default function App() {
         <div className="sliders">
           <Slider id="size" label={(v) => (sameWidth ? "Width" : `Size ${v}`)} min={20} max={240} value={size} onLive={setPvSize} onCommit={setSize} />
           <Slider id="pad" label={(v) => `Padding ×${v.toFixed(1)}`} min={0.2} max={1.6} step={0.1} value={pad} onCommit={setPad} />
+          {focus && <Slider id="cols" label={(v) => (v === 0 ? "Columns Auto" : `Columns ${v}`)} min={0} max={8} value={cols} onCommit={setCols} />}
         </div>
         <button type="button" className="caps" aria-pressed={caps} aria-label="Show previews in capitals" title="All caps" onClick={() => setCaps(!caps)}>
           {caps ? "AA" : "Aa"}
@@ -1038,18 +1069,34 @@ export default function App() {
           {!focus && !detailFam && (
             <div className="titlebar">
               <div>
-                <p className="kicker">Collection</p>
-                <h1>{coll}</h1>
+                {similarFam ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+                    <button type="button" className="btn" onClick={() => setSimilar(null)} title="Back (Esc)">← Back</button>
+                    <div>
+                      <p className="kicker">Fonts similar to</p>
+                      <h1>{similarFam.family}</h1>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="kicker">Collection</p>
+                    <h1>{coll}</h1>
+                  </>
+                )}
                 <div className="meta">
                   <span>
-                    {plural(shown.length)}
-                    {inColl ? " · favourites first" : ""} · {hint}
+                    {similarFam ? `The ${shown.length - 1} closest in shape from your whole library, most similar first` : plural(shown.length)}
+                    {inColl && !similarFam ? " · favourites first" : ""} · {hint}
                   </span>
-                  <label htmlFor="sort" style={{ fontWeight: 600, fontSize: 12 }}>Sort</label>
-                  <select id="sort" value={sort} onChange={(e) => setSort(e.target.value as "name" | "recent")}>
-                    <option value="name">Name</option>
-                    <option value="recent">Recently added</option>
-                  </select>
+                  {!similarFam && (
+                    <>
+                      <label htmlFor="sort" style={{ fontWeight: 600, fontSize: 12 }}>Sort</label>
+                      <select id="sort" value={sort} onChange={(e) => setSort(e.target.value as "name" | "recent")}>
+                        <option value="name">Name</option>
+                        <option value="recent">Recently added</option>
+                      </select>
+                    </>
+                  )}
                 </div>
               </div>
               {inColl && (
@@ -1120,7 +1167,7 @@ export default function App() {
               {shown.map((fam) => {
                 const isSel = sel.includes(fam.key);
                 return (
-                  <div key={fam.key} data-font-cell="true" className={`row${isSel ? " sel" : ""}`} style={{ paddingLeft: padL }} onPointerDown={(e) => onCardPointerDown(fam, e)}>
+                  <div key={fam.key} data-font-cell="true" className={`row${isSel ? " sel" : ""}`} style={{ paddingLeft: 24 }} onPointerDown={(e) => onCardPointerDown(fam, e)}>
                     <div className="info">
                       <div className="fname">{fam.family}</div>
                       <div className="fsub">{famSub(fam)}</div>
@@ -1139,7 +1186,7 @@ export default function App() {
               })}
             </div>
           ) : (
-            <div className="grid" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(min(${cellW}px, 100%), 1fr))`, gap }}>
+            <div className="grid" style={{ gridTemplateColumns: fixedCols ? `repeat(${cols}, minmax(0, 1fr))` : `repeat(auto-fill, minmax(min(${cellW}px, 100%), 1fr))`, gap }}>
               {shown.map((fam) => {
                 const isSel = sel.includes(fam.key);
                 const inTarget = !!target && fam.ids.some((id) => lib.collections.find((c) => c.name === target)?.fontIds.includes(id));
@@ -1149,7 +1196,7 @@ export default function App() {
                       type="button"
                       className="preview"
                       aria-label={`Select ${fam.family}`}
-                      style={{ paddingTop: padV, paddingBottom: focus ? padV : padB, paddingLeft: padL, paddingRight: focus ? 52 : padH, minHeight: cellH }}
+                      style={{ paddingTop: padV, paddingBottom: focus ? padV : padB, paddingLeft: padL, paddingRight: padH, minHeight: cellH }}
                       onClick={(e) => pick(fam, e)}
                       onDoubleClick={() => openDetail(fam)}
                       title="Double-click to see all characters"
@@ -1184,7 +1231,7 @@ export default function App() {
                         )
                       )
                     ) : (
-                      <div className="card-foot" style={{ paddingLeft: padL }}>
+                      <div className="card-foot" style={{ paddingLeft: 24 }}>
                         <div className="info">
                           <div className="fname">{fam.family}</div>
                           <div className="fsub">{famSub(fam)}</div>
@@ -1270,6 +1317,9 @@ export default function App() {
                 <div className="actions">
                   <button type="button" className="btn block" title={primaryFam.rep.path} onClick={() => revealItemInDir(primaryFam.rep.path)}>
                     <IconFolder size={16} /> Show in folder
+                  </button>
+                  <button type="button" className="btn block" onClick={() => { setSimilar(primaryFam.key); setDetail(null); mainRef.current?.scrollTo({ top: 0 }); }}>
+                    <IconSimilar size={16} /> Find similar fonts
                   </button>
                   {primaryFam.rep.external ? (
                     <p className="muted" style={{ fontSize: 12 }}>
@@ -1563,6 +1613,24 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {quick !== null && shown[quick] && (
+        <QuickLook
+          fams={shown}
+          index={quick}
+          fontOf={(f) => previewFont(f, filters)}
+          widthAt100={(f) => widths.get(f.key)}
+          text={text}
+          caps={caps}
+          colors={focus && colors.on ? { text: colors.text, bg: colors.bg } : null}
+          onIndex={(i) => {
+            setQuick(i);
+            setSel([shown[i].key]);
+            setPrimary(shown[i].key);
+          }}
+          onClose={() => setQuick(null)}
+        />
       )}
 
       {fileDrag && (

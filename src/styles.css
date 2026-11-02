@@ -262,3 +262,36 @@ code { padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size:
 .glyph:hover { background: var(--sel-row); z-index: 2; content-visibility: visible; }
 .glyph:hover::after { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); white-space: pre; padding: 8px 10px; border-radius: 8px; background: #343434; color: #edebe8; font: 600 12px/1.4 "Segoe UI", sans-serif; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3); pointer-events: none; z-index: 10; }
 :root[data-theme="dark"] .glyph:hover::after { background: #edebe8; color: #343434; }
+
+/* Space bar: large preview */
+.quicklook { position: fixed; inset: 0; z-index: 60; background: var(--bg); color: var(--ink); display: flex; flex-direction: column; cursor: grab; user-select: none; }
+.quicklook:active { cursor: grabbing; }
+.ql-bar { display: flex; align-items: center; gap: 16px; padding: 14px 20px; }
+.ql-bar > div:first-child { display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+.ql-bar b { font-size: 16px; }
+.ql-bar span, .ql-bar small { opacity: 0.7; font-size: 13px; }
+.ql-hint { flex: 1 1 auto; text-align: right; font-size: 12px; opacity: 0.6; }
+.ql-stage { flex: 1 1 auto; display: flex; align-items: center; justify-content: center; overflow: hidden; }
+.ql-text { white-space: nowrap; line-height: 1.2; will-change: transform; }
+.ql-nav { position: absolute; bottom: 20px; right: 20px; display: flex; gap: 8px; }
+.quicklook .icon-round { color: var(--ink); }
+
+/* Glyph view with points and handles */
+.gz { display: flex; flex-direction: column; gap: 14px; }
+.gz-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.gz-title { font-size: 32px; font-weight: 400; line-height: 1; min-width: 32px; }
+.gz-body { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; align-items: start; }
+.gz-svg { width: 100%; height: min(70vh, 720px); border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
+.gz-metric { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.gz-base { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.gz-label { fill: var(--muted); font-family: "Segoe UI", sans-serif; }
+.gz-fill { fill: var(--ink); }
+.gz-fill-light { fill: var(--ink); opacity: 0.12; }
+.gz-stroke { fill: none; stroke: var(--ink); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.gz-handle { stroke: #3d8bfd; stroke-width: 1; vector-effect: non-scaling-stroke; }
+.gz-anchor { fill: var(--card); stroke: var(--ink); stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.gz-control { fill: #3d8bfd; stroke: none; }
+.gz-info { display: grid; grid-template-columns: auto 1fr; gap: 6px 12px; margin: 0; font-size: 13px; }
+.gz-info dt { color: var(--muted); }
+.gz-info dd { margin: 0; font-weight: 600; }
+@media (max-width: 900px) { .gz-body { grid-template-columns: 1fr; } }

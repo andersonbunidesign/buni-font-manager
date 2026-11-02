@@ -29,6 +29,10 @@ export interface FontRecord {
   external?: boolean;
   /** Position inside a .ttc collection file. */
   index?: number;
+  /** Tags read from the letter shapes. */
+  traits?: string[];
+  /** Shape measurements for finding similar fonts. */
+  fingerprint?: number[];
 }
 
 export interface ExternalMeta {
@@ -117,4 +121,27 @@ export interface GlyphMap {
   ascender: number;
   descender: number;
   glyphCount: number;
+}
+
+export interface OutlinePoint {
+  x: number;
+  y: number;
+  on: boolean;
+}
+
+export interface GlyphOutline {
+  contours: OutlinePoint[][];
+  kind: "quadratic" | "cubic";
+  name: string | null;
+  glyphId: number;
+  advance: number;
+  xMin: number;
+  xMax: number;
+  yMin: number;
+  yMax: number;
+  unitsPerEm: number;
+  ascender: number;
+  descender: number;
+  xHeight: number | null;
+  capHeight: number | null;
 }

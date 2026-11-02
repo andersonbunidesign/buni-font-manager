@@ -1,7 +1,7 @@
 //! Reads what we need from a font file: names, weight, width, style flags,
 //! a classification (Serif, Script…) and which languages it covers.
 
-use crate::shape::{analyse, classify_shape, spacing_shape};
+use crate::shape::{analyse, classify_shape, fingerprint, spacing_shape, traits};
 use ttf_parser::{name_id, Face, Tag};
 
 #[derive(Debug, Clone, PartialEq)]
@@ -20,6 +20,8 @@ pub struct FontInfo {
     pub spacing: String,
     pub langs: Vec<String>,
     pub no_embedding: bool,
+    pub traits: Vec<String>,
+    pub fingerprint: Vec<f32>,
 }
 
 pub const LANG_SWEDISH: &str = "Swedish (å ä ö)";
@@ -137,7 +139,11 @@ pub fn read_font_at(data: &[u8], index: u32) -> Result<FontInfo, ReadError> {
     // fsType bit 1 (0x0002) = restricted licence embedding: may not be embedded.
     let no_embedding = fs_type & 0x000F == 0x0002;
 
+    let font_traits = traits(&shape, &classification, &format!("{family} {full_name}"));
+    let print = fingerprint(&shape, weight);
     Ok(FontInfo {
+        traits: font_traits,
+        fingerprint: print,
         family,
         style,
         full_name,
@@ -354,6 +360,108 @@ pub fn glyph_map(data: &[u8], index: u32, max_unmapped: usize) -> Result<GlyphMa
     })
 }
 
+/// One point of a glyph outline, in font units (y up).
+#[derive(Debug, Clone, Copy, serde::Serialize)]
+pub struct OutlinePoint {
+    pub x: f32,
+    pub y: f32,
+    /// On the curve (anchor) or a control point (handle).
+    pub on: bool,
+}
+
+/// A glyph's outline as the font stores it, for the zoomed glyph view.
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct GlyphOutline {
+    pub contours: Vec<Vec<OutlinePoint>>,
+    /// "quadratic" (TrueType) or "cubic" (OpenType CFF, like Illustrator).
+    pub kind: String,
+    pub name: Option<String>,
+    pub glyph_id: u16,
+    pub advance: u16,
+    pub x_min: i16,
+    pub x_max: i16,
+    pub y_min: i16,
+    pub y_max: i16,
+    pub units_per_em: u16,
+    pub ascender: i16,
+    pub descender: i16,
+    pub x_height: Option<i16>,
+    pub cap_height: Option<i16>,
+}
+
+#[derive(Default)]
+struct PointCollector {
+    contours: Vec<Vec<OutlinePoint>>,
+}
+
+impl PointCollector {
+    fn push(&mut self, x: f32, y: f32, on: bool) {
+        if let Some(c) = self.contours.last_mut() {
+            c.push(OutlinePoint { x, y, on });
+        }
+    }
+}
+
+impl ttf_parser::OutlineBuilder for PointCollector {
+    fn move_to(&mut self, x: f32, y: f32) {
+        self.contours.push(vec![OutlinePoint { x, y, on: true }]);
+    }
+    fn line_to(&mut self, x: f32, y: f32) {
+        self.push(x, y, true);
+    }
+    fn quad_to(&mut self, x1: f32, y1: f32, x: f32, y: f32) {
+        self.push(x1, y1, false);
+        self.push(x, y, true);
+    }
+    fn curve_to(&mut self, x1: f32, y1: f32, x2: f32, y2: f32, x: f32, y: f32) {
+        self.push(x1, y1, false);
+        self.push(x2, y2, false);
+        self.push(x, y, true);
+    }
+    fn close(&mut self) {
+        // The closing point repeats the start: drop it.
+        if let Some(c) = self.contours.last_mut() {
+            if c.len() > 1 {
+                let (a, b) = (c[0], c[c.len() - 1]);
+                if b.on && (a.x - b.x).abs() < 0.01 && (a.y - b.y).abs() < 0.01 {
+                    c.pop();
+                }
+            }
+        }
+    }
+}
+
+/// The outline of the glyph for character `cp`, or of glyph number `glyph_id`.
+pub fn glyph_outline(data: &[u8], index: u32, cp: Option<u32>, glyph_id: Option<u16>) -> Result<GlyphOutline, ReadError> {
+    let face = Face::parse(data, index).map_err(|_| ReadError::Unreadable)?;
+    let gid = match (cp, glyph_id) {
+        (Some(c), _) => char::from_u32(c).and_then(|ch| face.glyph_index(ch)),
+        (None, Some(g)) => Some(ttf_parser::GlyphId(g)),
+        _ => None,
+    }
+    .ok_or(ReadError::Unreadable)?;
+    let mut pc = PointCollector::default();
+    let bb = face.outline_glyph(gid, &mut pc);
+    let cubic = face.tables().cff.is_some() || face.tables().cff2.is_some();
+    Ok(GlyphOutline {
+        contours: pc.contours,
+        kind: if cubic { "cubic" } else { "quadratic" }.into(),
+        name: face.glyph_name(gid).map(String::from),
+        glyph_id: gid.0,
+        advance: face.glyph_hor_advance(gid).unwrap_or(0),
+        x_min: bb.map(|b| b.x_min).unwrap_or(0),
+        x_max: bb.map(|b| b.x_max).unwrap_or(0),
+        y_min: bb.map(|b| b.y_min).unwrap_or(0),
+        y_max: bb.map(|b| b.y_max).unwrap_or(0),
+        units_per_em: face.units_per_em(),
+        ascender: face.ascender(),
+        descender: face.descender(),
+        x_height: face.x_height(),
+        cap_height: face.capital_height(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -396,6 +504,11 @@ mod tests {
         assert!(m.chars.contains(&('A' as u32)));
         assert!(m.chars.windows(2).all(|w| w[0] < w[1]));
         assert!(m.units_per_em > 0);
+        let mono = std::fs::read(std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/SpaceMono-Regular.ttf")).unwrap();
+        let o = glyph_outline(&mono, 0, Some('O' as u32), None).unwrap();
+        assert_eq!(o.kind, "quadratic");
+        assert!(o.contours.len() >= 2);
+        assert!(o.contours[0].iter().any(|p| !p.on));
     }
 
     #[test]

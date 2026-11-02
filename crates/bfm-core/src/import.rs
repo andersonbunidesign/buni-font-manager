@@ -260,6 +260,8 @@ pub fn import_paths(lib: &mut Library, inputs: &[PathBuf], library_dir: &Path, o
                 hidden_ai_tags: vec![],
                 custom_tags: vec![],
                 external: false,
+                traits: info.traits.clone(),
+                fingerprint: info.fingerprint.clone(),
                 index: 0,
             });
             added_here.push(lib.fonts.len() - 1);
@@ -309,6 +311,12 @@ pub fn refresh_detection(lib: &mut Library) -> bool {
             f.langs = info.langs;
             f.no_embedding = info.no_embedding;
             f.monospace = info.monospace;
+            f.weight = info.weight;
+            f.italic = info.italic;
+            f.style = info.style;
+            f.full_name = info.full_name;
+            f.traits = info.traits;
+            f.fingerprint = info.fingerprint;
         }
     }
     lib.detection = DETECTION_VERSION;
