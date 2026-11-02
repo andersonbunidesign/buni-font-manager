@@ -18,6 +18,11 @@ Open the [Releases page](../../releases), download the file ending in **-setup.e
 
 Coming next: Adobe Fonts and system fonts in collections, AI tagging, Generate Artwork (Illustrator, Affinity, PDF).
 
+## New in 1.2.2
+
+- Glyph view grows with the window.
+- Metric lines: Ascender and Descender measured on the letters (b d h l, p q); the font's own line spacing top and bottom shown as dashed lines.
+
 ## New in 1.2.1
 
 - "Copied" appears next to the mouse, so the page doesn't move.

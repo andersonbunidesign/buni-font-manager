@@ -281,7 +281,7 @@ code { padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size:
 .gz-bar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .gz-title { font-size: 32px; font-weight: 400; line-height: 1; min-width: 32px; }
 .gz-body { display: grid; grid-template-columns: minmax(0, 1fr) 220px; gap: 16px; align-items: start; }
-.gz-svg { width: 100%; height: min(70vh, 720px); border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
+.gz-svg { width: 100%; height: max(320px, calc(100vh - 210px)); border-radius: 12px; border: 1px solid var(--line); background: var(--card); }
 .gz-metric { stroke: var(--line); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .gz-base { stroke: var(--muted); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .gz-label { fill: var(--muted); font-family: "Segoe UI", sans-serif; }
@@ -303,3 +303,4 @@ code { padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size:
 .gz-stage { position: relative; }
 .gz-svg { cursor: grab; touch-action: none; }
 .gz-svg:active { cursor: grabbing; }
+.gz-line { stroke: var(--line); stroke-width: 1; stroke-dasharray: 4 4; vector-effect: non-scaling-stroke; }

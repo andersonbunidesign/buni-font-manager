@@ -142,6 +142,8 @@ export interface GlyphOutline {
   unitsPerEm: number;
   ascender: number;
   descender: number;
+  letterAscender: number | null;
+  letterDescender: number | null;
   xHeight: number | null;
   capHeight: number | null;
 }

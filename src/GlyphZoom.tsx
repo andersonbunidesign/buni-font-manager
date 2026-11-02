@@ -142,8 +142,8 @@ export function GlyphZoom(props: {
   let svg = null;
   let info = null;
   if (o) {
-    const top = Math.max(o.ascender, o.yMax, o.capHeight ?? 0);
-    const bottom = Math.min(o.descender, o.yMin);
+    const top = Math.max(o.ascender, o.yMax, o.capHeight ?? 0, o.letterAscender ?? 0);
+    const bottom = Math.min(o.descender, o.yMin, o.letterDescender ?? 0);
     const left = Math.min(0, o.xMin);
     const right = Math.max(o.advance, o.xMax);
     const padX = (right - left) * 0.12 + o.unitsPerEm * 0.05;
@@ -191,12 +191,16 @@ export function GlyphZoom(props: {
       // A click without dragging: back to the whole glyph.
       if (d && !d.moved) reset();
     };
-    const lines: [string, number][] = [
-      ["Ascender", o.ascender],
-      ["Cap height", o.capHeight ?? NaN],
-      ["x-height", o.xHeight ?? NaN],
-      ["Baseline", 0],
-      ["Descender", o.descender],
+    // Letter lines are measured on the letters; the two "line spacing" lines are the
+    // font's own ascent and descent, which set the line height in apps.
+    const lines: [string, number, string][] = [
+      ["Line spacing top", o.ascender, "gz-line"],
+      ["Ascender (b d h l)", o.letterAscender ?? NaN, "gz-metric"],
+      ["Cap height", o.capHeight ?? NaN, "gz-metric"],
+      ["x-height", o.xHeight ?? NaN, "gz-metric"],
+      ["Baseline", 0, "gz-base"],
+      ["Descender (p q)", o.letterDescender ?? NaN, "gz-metric"],
+      ["Line spacing bottom", o.descender, "gz-line"],
     ];
     const count = o.contours.reduce((a, c) => a + c.length, 0);
     svg = (
@@ -213,9 +217,9 @@ export function GlyphZoom(props: {
       >
         {lines
           .filter(([, y]) => Number.isFinite(y))
-          .map(([name, y]) => (
+          .map(([name, y, cls]) => (
             <g key={name}>
-              <line x1={vb[0]} x2={vb[0] + vb[2]} y1={-y} y2={-y} className={name === "Baseline" ? "gz-base" : "gz-metric"} />
+              <line x1={vb[0]} x2={vb[0] + vb[2]} y1={-y} y2={-y} className={cls} />
               <text x={vb[0] + 6 * u} y={-y - 4 * u} fontSize={11 * u} className="gz-label">
                 {name}
               </text>

@@ -384,8 +384,13 @@ pub struct GlyphOutline {
     pub y_min: i16,
     pub y_max: i16,
     pub units_per_em: u16,
+    /// Line spacing metrics from the font's tables (hhea, or OS/2 typo when the font asks for it).
     pub ascender: i16,
     pub descender: i16,
+    /// Measured on the letters: top of b d h k l, bottom of p q.
+    pub letter_ascender: Option<i16>,
+    pub letter_descender: Option<i16>,
+    /// From the OS/2 table, or measured on x and H when the font leaves them empty.
     pub x_height: Option<i16>,
     pub cap_height: Option<i16>,
 }
@@ -444,6 +449,10 @@ pub fn glyph_outline(data: &[u8], index: u32, cp: Option<u32>, glyph_id: Option<
     let mut pc = PointCollector::default();
     let bb = face.outline_glyph(gid, &mut pc);
     let cubic = face.tables().cff.is_some() || face.tables().cff2.is_some();
+    let bbox_of = |c: char| face.glyph_index(c).and_then(|g| face.glyph_bounding_box(g));
+    let top_of = |cs: &str| cs.chars().filter_map(bbox_of).map(|b| b.y_max).max();
+    let bottom_of = |cs: &str| cs.chars().filter_map(bbox_of).map(|b| b.y_min).min();
+    let positive = |v: Option<i16>| v.filter(|v| *v > 0);
     Ok(GlyphOutline {
         contours: pc.contours,
         kind: if cubic { "cubic" } else { "quadratic" }.into(),
@@ -457,8 +466,10 @@ pub fn glyph_outline(data: &[u8], index: u32, cp: Option<u32>, glyph_id: Option<
         units_per_em: face.units_per_em(),
         ascender: face.ascender(),
         descender: face.descender(),
-        x_height: face.x_height(),
-        cap_height: face.capital_height(),
+        letter_ascender: top_of("bdhkl"),
+        letter_descender: bottom_of("pq"),
+        x_height: positive(face.x_height()).or_else(|| top_of("x")),
+        cap_height: positive(face.capital_height()).or_else(|| top_of("H")),
     })
 }
 
