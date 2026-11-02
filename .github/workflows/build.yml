@@ -54,7 +54,9 @@ jobs:
           prerelease: false
 
   macos:
-    runs-on: macos-latest
+    # Intel Mac runner: GitHub's Apple-silicon runners are often short of capacity.
+    # It still builds one app for both Apple silicon and Intel Macs.
+    runs-on: macos-15-intel
     steps:
       - uses: actions/checkout@v4
 
