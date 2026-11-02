@@ -1,5 +1,5 @@
 // A single glyph, large, with its anchor points, bezier handles and metrics.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "./api";
 import type { GlyphOutline, OutlinePoint } from "./types";
 
@@ -81,13 +81,27 @@ export function GlyphZoom(props: {
   at: number;
   onAt: (i: number) => void;
   onClose: () => void;
-  onCopy: (cp: number) => void;
+  onCopy: (cp: number, x: number, y: number) => void;
 }) {
   const { path, index, fontFamily, list, at, onAt, onClose, onCopy } = props;
   const ref = list[at];
   const [o, setO] = useState<GlyphOutline | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [points, setPoints] = useState(true);
+  // Zoom and pan of the drawing: scroll zooms at the mouse, drag moves, a click resets.
+  const [view, setView] = useState({ z: 1, ox: 0, oy: 0 });
+  const drag = useRef<{ x: number; y: number; ox: number; oy: number; moved: boolean } | null>(null);
+  const svgRef = useRef<SVGSVGElement>(null);
+  const reset = () => setView({ z: 1, ox: 0, oy: 0 });
+  useEffect(reset, [at]);
+  // Scrolling over the drawing zooms it instead of scrolling the page.
+  useEffect(() => {
+    const el = svgRef.current;
+    if (!el) return;
+    const stop = (e: WheelEvent) => e.preventDefault();
+    el.addEventListener("wheel", stop, { passive: false });
+    return () => el.removeEventListener("wheel", stop);
+  }, [o]);
 
   useEffect(() => {
     let live = true;
@@ -134,8 +148,49 @@ export function GlyphZoom(props: {
     const right = Math.max(o.advance, o.xMax);
     const padX = (right - left) * 0.12 + o.unitsPerEm * 0.05;
     const padY = (top - bottom) * 0.06;
-    const vb = [left - padX, -top - padY, right - left + padX * 2, top - bottom + padY * 2];
+    const base = [left - padX, -top - padY, right - left + padX * 2, top - bottom + padY * 2];
+    const vw = base[2] / view.z;
+    const vh = base[3] / view.z;
+    const vb = [base[0] + (base[2] - vw) / 2 + view.ox, base[1] + (base[3] - vh) / 2 + view.oy, vw, vh];
     const u = vb[3] / 600; // one "screen pixel" in font units, roughly
+    /** Font units per screen pixel, and where the drawing starts inside the element. */
+    const fit = () => {
+      const r = svgRef.current!.getBoundingClientRect();
+      const s = Math.min(r.width / vb[2], r.height / vb[3]);
+      return { r, s, offX: (r.width - vb[2] * s) / 2, offY: (r.height - vb[3] * s) / 2 };
+    };
+    const onWheel = (e: React.WheelEvent) => {
+      if (!svgRef.current) return;
+      const { r, s, offX, offY } = fit();
+      // The point under the mouse stays put while zooming.
+      const fx = vb[0] + (e.clientX - r.left - offX) / s;
+      const fy = vb[1] + (e.clientY - r.top - offY) / s;
+      const z = Math.min(40, Math.max(0.5, view.z * Math.exp(-e.deltaY * 0.0015)));
+      const nw = base[2] / z;
+      const nh = base[3] / z;
+      const nx = fx - ((fx - vb[0]) / vb[2]) * nw;
+      const ny = fy - ((fy - vb[1]) / vb[3]) * nh;
+      setView({ z, ox: nx - (base[0] + (base[2] - nw) / 2), oy: ny - (base[1] + (base[3] - nh) / 2) });
+    };
+    const onDown = (e: React.PointerEvent) => {
+      if (e.button !== 0) return;
+      (e.currentTarget as Element).setPointerCapture(e.pointerId);
+      drag.current = { x: e.clientX, y: e.clientY, ox: view.ox, oy: view.oy, moved: false };
+    };
+    const onMove = (e: React.PointerEvent) => {
+      const d = drag.current;
+      if (!d || !svgRef.current) return;
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) d.moved = true;
+      if (!d.moved) return;
+      const { s } = fit();
+      setView((v) => ({ ...v, ox: d.ox - (e.clientX - d.x) / s, oy: d.oy - (e.clientY - d.y) / s }));
+    };
+    const onUp = () => {
+      const d = drag.current;
+      drag.current = null;
+      // A click without dragging: back to the whole glyph.
+      if (d && !d.moved) reset();
+    };
     const lines: [string, number][] = [
       ["Ascender", o.ascender],
       ["Cap height", o.capHeight ?? NaN],
@@ -145,7 +200,17 @@ export function GlyphZoom(props: {
     ];
     const count = o.contours.reduce((a, c) => a + c.length, 0);
     svg = (
-      <svg className="gz-svg" viewBox={vb.join(" ")} preserveAspectRatio="xMidYMid meet" aria-label={`Outline of ${title}`}>
+      <svg
+        ref={svgRef}
+        className="gz-svg"
+        viewBox={vb.join(" ")}
+        preserveAspectRatio="xMidYMid meet"
+        aria-label={`Outline of ${title}. Scroll to zoom, drag to move, click to fit.`}
+        onWheel={onWheel}
+        onPointerDown={onDown}
+        onPointerMove={onMove}
+        onPointerUp={onUp}
+      >
         {lines
           .filter(([, y]) => Number.isFinite(y))
           .map(([name, y]) => (
@@ -217,7 +282,7 @@ export function GlyphZoom(props: {
           Points and handles
         </button>
         {"cp" in ref && (
-          <button type="button" className="btn" onClick={() => onCopy(ref.cp)}>
+          <button type="button" className="btn" onClick={(e) => onCopy(ref.cp, e.clientX, e.clientY)}>
             Copy
           </button>
         )}
@@ -229,7 +294,14 @@ export function GlyphZoom(props: {
         </button>
       </div>
       <div className="gz-body">
-        {err ? <p className="empty">{err}</p> : svg ?? <p className="muted">Reading the outline…</p>}
+        <div className="gz-stage">
+          {err ? <p className="empty">{err}</p> : svg ?? <p className="muted">Reading the outline…</p>}
+          {(view.z !== 1 || view.ox !== 0 || view.oy !== 0) && (
+            <button type="button" className="btn zoom-reset" onClick={reset} title="Fit the whole glyph (or click the drawing)">
+              Fit
+            </button>
+          )}
+        </div>
         {info}
       </div>
     </div>

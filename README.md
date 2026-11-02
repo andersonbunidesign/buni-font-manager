@@ -18,6 +18,13 @@ Open the [Releases page](../../releases), download the file ending in **-setup.e
 
 Coming next: Adobe Fonts and system fonts in collections, AI tagging, Generate Artwork (Illustrator, Affinity, PDF).
 
+## New in 1.2.1
+
+- "Copied" appears next to the mouse, so the page doesn't move.
+- Glyph view: scroll to zoom at the mouse, drag to move, click (or Fit) to see the whole glyph again. The space bar view works the same way.
+- Same width with a fixed number of columns: the Size slider still sets the size; the column only caps it.
+- The version line shows the month and year, also in Settings.
+
 ## New in 1.2
 
 - Adobe Fonts turned on in Creative Cloud appear right away (the folder is watched, and checked again when you come back to the app).

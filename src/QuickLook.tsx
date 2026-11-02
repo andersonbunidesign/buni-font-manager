@@ -20,7 +20,11 @@ export function QuickLook(props: {
   const fam = fams[index];
   const [zoom, setZoom] = useState(1);
   const [pan, setPan] = useState({ x: 0, y: 0 });
-  const drag = useRef<{ x: number; y: number; px: number; py: number } | null>(null);
+  const drag = useRef<{ x: number; y: number; px: number; py: number; moved: boolean } | null>(null);
+  const reset = () => {
+    setZoom(1);
+    setPan({ x: 0, y: 0 });
+  };
   const [vw, setVw] = useState(window.innerWidth);
   const [vh, setVh] = useState(window.innerHeight);
 
@@ -80,13 +84,21 @@ export function QuickLook(props: {
       onPointerDown={(e) => {
         if ((e.target as HTMLElement).closest("button")) return;
         (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
-        drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y };
+        if (e.button !== 0) return;
+        drag.current = { x: e.clientX, y: e.clientY, px: pan.x, py: pan.y, moved: false };
       }}
       onPointerMove={(e) => {
         const d = drag.current;
-        if (d) setPan({ x: d.px + e.clientX - d.x, y: d.py + e.clientY - d.y });
+        if (!d) return;
+        if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 4) d.moved = true;
+        if (d.moved) setPan({ x: d.px + e.clientX - d.x, y: d.py + e.clientY - d.y });
       }}
-      onPointerUp={() => (drag.current = null)}
+      onPointerUp={() => {
+        const d = drag.current;
+        drag.current = null;
+        // A click without dragging: back to the fitted, centred view.
+        if (d && !d.moved) reset();
+      }}
       role="dialog"
       aria-label={`${fam.family}, large preview`}
     >
@@ -96,7 +108,7 @@ export function QuickLook(props: {
           <small>{fam.origin}</small>
         </div>
         <div className="ql-hint">
-          {index + 1} / {fams.length} · Scroll to zoom, drag to move, arrows for next and previous, 0 to reset, Space or Esc to close
+          {index + 1} / {fams.length} · Scroll to zoom, drag to move, click to fit, arrows for next and previous, Space or Esc to close
         </div>
         <button type="button" className="icon-round" aria-label="Close" onClick={onClose}>
           ✕
@@ -116,6 +128,11 @@ export function QuickLook(props: {
         </div>
       </div>
       <div className="ql-nav">
+        {(zoom !== 1 || pan.x !== 0 || pan.y !== 0) && (
+          <button type="button" className="btn" onClick={reset} title="Fit and centre (or click anywhere, or press 0)">
+            Fit
+          </button>
+        )}
         <button type="button" className="icon-round" aria-label="Previous font" disabled={index === 0} onClick={() => onIndex(index - 1)}>
           ←
         </button>

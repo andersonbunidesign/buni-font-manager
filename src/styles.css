@@ -295,3 +295,11 @@ code { padding: 10px 12px; border-radius: 8px; background: var(--bg); font-size:
 .gz-info dt { color: var(--muted); }
 .gz-info dd { margin: 0; font-weight: 600; }
 @media (max-width: 900px) { .gz-body { grid-template-columns: 1fr; } }
+.settings-credit { margin-top: 0; padding: 12px 0 0; border-top: 1px solid var(--line); color: var(--muted); }
+/* Small note next to the mouse (e.g. "Copied"), so the page doesn't move */
+.cursor-note { position: fixed; z-index: 80; pointer-events: none; padding: 6px 10px; border-radius: 8px; background: #343434; color: #edebe8; font: 600 12px/1.3 "Segoe UI", sans-serif; box-shadow: 0 6px 18px rgba(0, 0, 0, 0.3); max-width: 320px; }
+:root[data-theme="dark"] .cursor-note { background: #edebe8; color: #343434; }
+.zoom-reset { position: absolute; top: 12px; right: 12px; }
+.gz-stage { position: relative; }
+.gz-svg { cursor: grab; touch-action: none; }
+.gz-svg:active { cursor: grabbing; }

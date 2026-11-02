@@ -64,7 +64,7 @@ export function FontPage(props: {
   onBack: () => void;
   say: (msg: string) => void;
 }) {
-  const { fam, initialId, text, caps, align, pad, onBack, say } = props;
+  const { fam, initialId, text, caps, align, pad, onBack } = props;
   const [fontId, setFontId] = useState(fam.fonts.some((f) => f.id === initialId) ? initialId : fam.rep.id);
   const font: FontRecord = fam.fonts.find((f) => f.id === fontId) ?? fam.rep;
   const [glyphs, setGlyphs] = useState<GlyphMap | null>(null);
@@ -72,6 +72,14 @@ export function FontPage(props: {
   const [showAll, setShowAll] = useState(false);
   const [zoomAt, setZoomAt] = useState<number | null>(null);
   const clickTimer = useRef<number | undefined>(undefined);
+  const [note, setNote] = useState<{ x: number; y: number; msg: string } | null>(null);
+  const noteTimer = useRef<number | undefined>(undefined);
+  /** A short message next to the mouse, so the page doesn't move. */
+  function noteAt(x: number, y: number, msg: string, ms = 1300) {
+    setNote({ x, y, msg });
+    window.clearTimeout(noteTimer.current);
+    noteTimer.current = window.setTimeout(() => setNote(null), ms);
+  }
 
   useEffect(() => {
     let live = true;
@@ -105,15 +113,22 @@ export function FontPage(props: {
     setZoomAt(i);
   }
 
-  function copy(ch: string, label: string) {
+  function copy(ch: string, label: string, x: number, y: number) {
     navigator.clipboard
       .writeText(ch)
-      .then(() => say(`Copied ${label}`))
-      .catch(() => say("Couldn't copy"));
+      .then(() => noteAt(x, y, `Copied ${label}`))
+      .catch(() => noteAt(x, y, "Couldn't copy"));
   }
+
+  const noteEl = note && (
+    <div className="cursor-note" style={{ left: note.x + 14, top: note.y - 34 }} role="status">
+      {note.msg}
+    </div>
+  );
 
   if (zoomAt !== null && refs[zoomAt]) {
     return (
+      <>
       <GlyphZoom
         path={font.path}
         index={font.index ?? 0}
@@ -122,8 +137,10 @@ export function FontPage(props: {
         at={zoomAt}
         onAt={setZoomAt}
         onClose={() => setZoomAt(null)}
-        onCopy={(cp) => copy(String.fromCodePoint(cp), `${String.fromCodePoint(cp)} (${hex(cp)})`)}
+        onCopy={(cp, x, y) => copy(String.fromCodePoint(cp), `${String.fromCodePoint(cp)} (${hex(cp)})`, x, y)}
       />
+      {noteEl}
+      </>
     );
   }
 
@@ -179,7 +196,10 @@ export function FontPage(props: {
               const ch = String.fromCodePoint(cp);
               const tip = `${cp === 0x20 ? "Space" : ch}  ${hex(cp)}\n${howToType(cp)}`;
               return (
-                <button key={cp} type="button" className="glyph" data-tip={tip} aria-label={`${hex(cp)}: ${howToType(cp)}`} onClick={() => onGlyphClick(() => copy(ch, cp === 0x20 ? "a space" : `${ch} (${hex(cp)})`))} onDoubleClick={() => onGlyphDouble(refIndex.get(`c${cp}`) ?? 0)}>
+                <button key={cp} type="button" className="glyph" data-tip={tip} aria-label={`${hex(cp)}: ${howToType(cp)}`} onClick={(e) => {
+                    const { clientX: x, clientY: y } = e;
+                    onGlyphClick(() => copy(ch, cp === 0x20 ? "a space" : `${ch} (${hex(cp)})`, x, y));
+                  }} onDoubleClick={() => onGlyphDouble(refIndex.get(`c${cp}`) ?? 0)}>
                   <span style={{ fontFamily: family, fontSize: "var(--pv-size)" }}>{ch}</span>
                   <small>{hex(cp)}</small>
                 </button>
@@ -210,7 +230,10 @@ export function FontPage(props: {
                       className="glyph"
                       data-tip={`${g.name ?? `Glyph ${g.id}`}\nNo character code: use Illustrator's Glyphs panel`}
                       aria-label={g.name ?? `Glyph ${g.id}`}
-                      onClick={() => onGlyphClick(() => say("This glyph has no character code, so it can't be copied as text. Double-click to see it large. Use Illustrator's Glyphs panel to place it."))}
+                      onClick={(e) => {
+                        const { clientX: x, clientY: y } = e;
+                        onGlyphClick(() => noteAt(x, y, "No character code, so it can't be copied as text. Use Illustrator's Glyphs panel. Double-click to see it large.", 3200));
+                      }}
                       onDoubleClick={() => onGlyphDouble(refIndex.get(`g${g.id}`) ?? 0)}
                     >
                       <svg viewBox={`0 ${-top} ${w} ${h}`} style={{ height: "calc(var(--pv-size) * 1.15)", width: "auto", maxWidth: "100%", overflow: "visible" }} aria-hidden="true">
@@ -226,6 +249,7 @@ export function FontPage(props: {
           )}
         </>
       )}
+      {noteEl}
     </div>
   );
 }

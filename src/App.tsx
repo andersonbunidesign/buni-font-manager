@@ -490,7 +490,8 @@ export default function App() {
     if (!sameWidth) return 1;
     const w = widths.get(fam.key);
     if (!w || !medianW) return 1;
-    const target = (fixedCols ? colTextW : typicalW) / ((medianW * size) / 100);
+    // The Size slider decides the width; a fixed column only caps it.
+    const target = (fixedCols ? Math.min(typicalW, colTextW) : typicalW) / ((medianW * size) / 100);
     return Math.min(2.2 * target, (medianW / w) * target);
   };
 
@@ -1055,7 +1056,7 @@ export default function App() {
 
             <button type="button" className="credit" onClick={() => openUrl("https://andersonbunidesign.com")}>
               <span>Vibe coded by Anderson Santos</span>
-              <span>Version {version}</span>
+              <span>Version {version} · {__BUILD_DATE__}</span>
             </button>
           </nav>
         )}
@@ -1507,7 +1508,10 @@ export default function App() {
                 </span>
               </button>
             </section>
-            <p className="muted">Coming in the next updates: AI tagging and Generate Artwork.</p>
+            <button type="button" className="credit settings-credit" onClick={() => openUrl("https://andersonbunidesign.com")}>
+              <span>Buni Font Manager · Vibe coded by Anderson Santos</span>
+              <span>Version {version} · {__BUILD_DATE__}</span>
+            </button>
             <div className="dialog-actions">
               <button type="button" className="btn primary" onClick={() => setModal(null)}>Done</button>
             </div>
