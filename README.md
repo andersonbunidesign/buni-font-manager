@@ -18,6 +18,11 @@ Open the [Releases page](../../releases), download the file ending in **-setup.e
 
 Coming next: Adobe Fonts and system fonts in collections, AI tagging, Generate Artwork (Illustrator, Affinity, PDF).
 
+## New in 1.2.3
+
+- Mac: layout fixed for Safari's web view (headings, chips and buttons no longer overlap; dialogs are centred; colour picker works).
+- Mac: Adobe Fonts are found (macOS keeps them as hidden files); Apple's private system fonts are no longer listed.
+
 ## New in 1.2.2
 
 - Glyph view grows with the window.

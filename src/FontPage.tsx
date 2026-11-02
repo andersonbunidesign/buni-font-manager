@@ -191,7 +191,7 @@ export function FontPage(props: {
 
       {glyphs && (
         <>
-          <div className="glyphs" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cell}, 1fr))` }}>
+          <div className="glyphs" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cell}, 1fr))`, gridAutoRows: `minmax(${cell}, auto)` }}>
             {shownChars.map((cp) => {
               const ch = String.fromCodePoint(cp);
               const tip = `${cp === 0x20 ? "Space" : ch}  ${hex(cp)}\n${howToType(cp)}`;
@@ -218,7 +218,7 @@ export function FontPage(props: {
               <p className="muted" style={{ margin: 0, fontSize: 12 }}>
                 These have no keyboard key or character code. Use them from Illustrator's Glyphs panel or with OpenType features.
               </p>
-              <div className="glyphs" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cell}, 1fr))` }}>
+              <div className="glyphs" style={{ gridTemplateColumns: `repeat(auto-fill, minmax(${cell}, 1fr))`, gridAutoRows: `minmax(${cell}, auto)` }}>
                 {glyphs.unmapped.map((g) => {
                   const top = glyphs.ascender;
                   const h = glyphs.ascender - glyphs.descender;

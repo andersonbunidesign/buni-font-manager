@@ -49,11 +49,15 @@ pub fn external_id(path: &str, index: u32) -> String {
 
 fn wanted(path: &Path, any_extension: bool) -> bool {
     let name = path.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default();
-    if name.starts_with('.') || name.ends_with(".xml") || name.ends_with(".json") || name.ends_with(".db") || name.ends_with(".lock") {
+    if name.ends_with(".xml") || name.ends_with(".json") || name.ends_with(".db") || name.ends_with(".lock") || name == ".ds_store" || name.starts_with("._") {
         return false;
     }
+    // On the Mac, Adobe Fonts keeps its fonts as hidden files (".12345.otf" in ".r").
     if any_extension {
         return true;
+    }
+    if name.starts_with('.') {
+        return false;
     }
     name.ends_with(".otf") || name.ends_with(".ttf") || name.ends_with(".ttc") || name.ends_with(".otc")
 }
@@ -82,6 +86,10 @@ fn read_records(path: &Path, origin: &str, mtime: u64) -> Vec<FontRecord> {
     let mut out = Vec::new();
     for index in 0..face_count(&data).min(64) {
         let Ok(info) = read_font_at(&data, index) else { continue };
+        // macOS keeps private system fonts whose names start with "." (".SF NS"…): apps can't use them.
+        if info.family.starts_with('.') {
+            continue;
+        }
         out.push(FontRecord {
             id: external_id(&path_str, index),
             family: info.family,
@@ -146,6 +154,7 @@ pub fn scan(sources: &[ScanSource], cache: &mut ScanCache, detection_version: u3
         }
     }
     cache.entries.retain(|k, _| seen.contains(k));
+    out.retain(|r| !r.family.starts_with('.'));
     // The same font can be both installed and synced; keep the first one seen.
     let mut ids = BTreeSet::new();
     out.retain(|r| ids.insert(r.id.clone()));
@@ -189,7 +198,9 @@ mod tests {
         std::fs::write(sys.join("SpaceMono-Regular.ttf"), fixture("SpaceMono-Regular.ttf")).unwrap();
         std::fs::write(sys.join("notes.txt"), b"hello").unwrap();
         // Adobe stores fonts without an extension.
-        std::fs::write(adobe.join("12345"), fixture("PinyonScript-Regular.ttf")).unwrap();
+        // Adobe stores fonts as hidden files on the Mac.
+        std::fs::write(adobe.join(".12345.otf"), fixture("PinyonScript-Regular.ttf")).unwrap();
+        std::fs::write(adobe.join(".DS_Store"), b"junk").unwrap();
         std::fs::write(adobe.join("entitlements.xml"), b"<x/>").unwrap();
 
         let sources = vec![
